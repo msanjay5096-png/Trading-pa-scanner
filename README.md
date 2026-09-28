@@ -1,25 +1,15 @@
-# 🎈 Blank app template
+# Price Action Scanner
 
-A simple Streamlit app template for you to modify!
+Chart-matched setup scanner for Indian Stocks, Crypto, and Forex.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+## Setup Rules (Strict)
+1. Near clear Support / Resistance (within 0.30%)
+2. Higher Low (bullish) or Lower High (bearish)
+3. Healthy break candle that closes meaningfully beyond the level
+4. Next candle is clear red/green rejection or decision candle
 
-### How to run it on your own machine
-
-Prerequisite: install `uv` if you don't already have it.
-
+## Run
+```bash
+pip install -r requirements.txt
+streamlit run app.py
 ```
-$ curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-1. Sync the dependencies
-
-   ```
-   $ uv sync
-   ```
-
-2. Run the app
-
-   ```
-   $ uv run streamlit run streamlit_app.py
-   ```
