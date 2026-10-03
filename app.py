@@ -102,6 +102,8 @@ def save_json(filepath, data):
 
 def get_symbol_suffix(symbol, market):
     symbol = symbol.upper().strip()
+    if symbol.startswith("^"):
+        return symbol  # indices like ^NSEI, ^NSEBANK, ^BSESN
     if market == "Indian Stocks":
         if not (symbol.endswith(".NS") or symbol.endswith(".BO")):
             return symbol + ".NS"
@@ -317,12 +319,14 @@ def scan_symbol(symbol, interval="5m", rules=None):
                     pre_break = df.iloc[:break_i+1]
                     if has_higher_low(pre_break, lookback=30):
                         if is_rejection_or_decision_candle(conf_candle, "up"):
-                            # Volume check (skip if no volume data)
+                            # Rejection/doji volume MUST be higher than breakout candle
+                            # Skip only when volume data is missing (e.g. some indices)
                             prev_vol = float(df['Volume'].iloc[break_i])
                             conf_vol = float(df['Volume'].iloc[conf_i])
-                            vol_ok = True
-                            if prev_vol > 0 or conf_vol > 0:
-                                vol_ok = conf_vol >= prev_vol * 0.9  # mild preference
+                            if rules and rules.get("require_high_volume_rejection", True):
+                                if prev_vol > 0 or conf_vol > 0:
+                                    if not (conf_vol > prev_vol):
+                                        continue  # fail rule — rejection vol not higher
 
                             score = 70
                             if conf_vol > prev_vol and prev_vol > 0:
@@ -388,8 +392,14 @@ def scan_symbol(symbol, interval="5m", rules=None):
                     pre_break = df.iloc[:break_i+1]
                     if has_lower_high(pre_break, lookback=30):
                         if is_rejection_or_decision_candle(conf_candle, "down"):
+                            # Rejection/doji volume MUST be higher than breakout candle
                             prev_vol = float(df['Volume'].iloc[break_i])
                             conf_vol = float(df['Volume'].iloc[conf_i])
+                            if rules and rules.get("require_high_volume_rejection", True):
+                                if prev_vol > 0 or conf_vol > 0:
+                                    if not (conf_vol > prev_vol):
+                                        continue  # fail rule — rejection vol not higher
+
                             score = 70
                             if conf_vol > prev_vol and prev_vol > 0:
                                 score += 15
@@ -443,6 +453,8 @@ def scan_symbol(symbol, interval="5m", rules=None):
 
 
 
+
+
 # ====================== STREAMLIT APP ======================
 st.set_page_config(
     page_title="PA Scanner",
@@ -451,113 +463,305 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-st.markdown("""
+if "theme" not in st.session_state:
+    st.session_state["theme"] = "dark"
+
+theme = st.session_state["theme"]
+is_dark = theme == "dark"
+
+# ===== NEON GRADIENT UI (matched to preview) =====
+if is_dark:
+    st.markdown("""
 <style>
-    html, body, [class*="css"] { font-size: 17px !important; }
-    .stApp {
-        background: linear-gradient(180deg, #070b14 0%, #0c1220 100%);
-        color: #e8edf7;
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800;900&display=swap');
+
+    html, body, [class*="css"], .stApp, button, input, textarea, label {
+        font-family: 'Poppins', system-ui, sans-serif !important;
     }
-    #MainMenu, footer, header { visibility: hidden; }
+    html, body, [class*="css"] { font-size: 16px !important; }
+
+    .stApp {
+        background:
+            radial-gradient(900px 500px at 15% 0%, #7c4dff66 0%, transparent 55%),
+            radial-gradient(800px 450px at 95% 15%, #00e5ff44 0%, transparent 50%),
+            radial-gradient(700px 400px at 50% 100%, #00e67655 0%, transparent 50%),
+            linear-gradient(165deg, #0a0618 0%, #12082a 40%, #071820 100%) !important;
+        color: #f0f4ff !important;
+    }
+    #MainMenu, footer, header, [data-testid="stSidebar"] { display: none !important; }
     .stDeployButton { display: none; }
 
     .block-container {
-        padding-top: 0.7rem !important;
-        padding-bottom: 2.8rem !important;
-        max-width: 480px !important;
+        padding-top: 0.45rem !important;
+        padding-bottom: 2.2rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        max-width: 430px !important;
     }
 
-    .hero { text-align: center; padding: 0.35rem 0 0.7rem 0; }
+    .hero { text-align: center; padding: 0.15rem 0 0.65rem 0; }
     .hero h1 {
-        margin: 0; font-size: 1.75rem; font-weight: 800; letter-spacing: -0.4px;
-        background: linear-gradient(90deg, #5cffb0, #00e676);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 900;
+        letter-spacing: -0.5px;
+        background: linear-gradient(90deg, #00e5ff 0%, #00e676 45%, #ffea00 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        filter: drop-shadow(0 0 20px #00e5ff55);
     }
-    .hero p { margin: 0.25rem 0 0 0; color: #8ea0bd; font-size: 0.95rem; }
+    .hero p {
+        margin: 0.2rem 0 0 0;
+        color: #9eb0d0;
+        font-size: 0.88rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+    }
 
     .panel {
-        background: rgba(18, 24, 38, 0.95);
-        border: 1px solid #243044;
-        border-radius: 18px;
+        background: linear-gradient(145deg, rgba(30,20,60,0.75), rgba(12,18,40,0.8));
+        border: 1px solid rgba(124, 77, 255, 0.35);
+        border-radius: 20px;
         padding: 0.95rem 1rem;
-        margin-bottom: 0.85rem;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+        margin-bottom: 0.8rem;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+        backdrop-filter: blur(12px);
     }
     .panel-title {
-        font-size: 0.85rem; font-weight: 700; color: #9aabc8;
-        text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.5rem;
+        font-size: 0.78rem;
+        font-weight: 800;
+        color: #b39ddb;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 0.5rem;
     }
 
     .chip {
-        display: inline-block; background: #182234; border: 1px solid #2a3a55;
-        color: #c9d6ef; border-radius: 999px; padding: 0.3rem 0.75rem;
-        margin: 0.2rem 0.25rem 0.2rem 0; font-size: 0.9rem; font-weight: 600;
+        display: inline-block;
+        background: rgba(30, 40, 80, 0.8);
+        border: 1px solid rgba(0, 229, 255, 0.35);
+        color: #e0f7fa;
+        border-radius: 999px;
+        padding: 0.28rem 0.7rem;
+        margin: 0.15rem 0.2rem 0.15rem 0;
+        font-size: 0.84rem;
+        font-weight: 700;
     }
 
     .card {
-        background: linear-gradient(145deg, #121a2b, #0e1522);
-        border-radius: 16px; padding: 1rem 1.05rem; margin-bottom: 0.8rem;
-        border: 1px solid #243044;
+        background: linear-gradient(145deg, rgba(28,22,55,0.9), rgba(14,18,40,0.95));
+        border-radius: 18px;
+        padding: 1rem 1.05rem;
+        margin-bottom: 0.75rem;
+        border: 1px solid rgba(100, 120, 255, 0.25);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
     }
-    .card-green { border-color: #00e67655; background: linear-gradient(145deg, #102018, #0e1522); }
-    .card-red { border-color: #ff525255; background: linear-gradient(145deg, #201018, #0e1522); }
+    .card-green {
+        border-color: rgba(0, 230, 118, 0.55);
+        background: linear-gradient(145deg, rgba(10,40,28,0.95), rgba(12,20,30,0.95));
+        box-shadow: 0 0 24px rgba(0, 230, 118, 0.15);
+    }
+    .card-red {
+        border-color: rgba(255, 82, 82, 0.5);
+        background: linear-gradient(145deg, rgba(40,12,20,0.95), rgba(18,12,20,0.95));
+        box-shadow: 0 0 24px rgba(255, 82, 82, 0.12);
+    }
 
-    .score { font-size: 1.55rem; font-weight: 800; }
-    .score-green { color: #00e676; }
-    .score-yellow { color: #ffc107; }
-    .score-red { color: #ff6b6b; }
+    .score { font-size: 1.55rem; font-weight: 900; }
+    .score-green { color: #00e676; text-shadow: 0 0 14px #00e67666; }
+    .score-yellow { color: #ffea00; text-shadow: 0 0 14px #ffea0066; }
+    .score-red { color: #ff5252; text-shadow: 0 0 14px #ff525266; }
 
     .tag {
-        display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px;
-        font-size: 0.8rem; font-weight: 700; margin-left: 0.3rem;
+        display: inline-block;
+        padding: 0.16rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        margin-left: 0.25rem;
     }
-    .tag-bull { background: #00e67622; color: #00e676; }
-    .tag-bear { background: #ff525222; color: #ff6b6b; }
-    .tag-full { background: #00e67633; color: #00e676; border: 1px solid #00e67655; }
+    .tag-bull { background: rgba(0,230,118,0.15); color: #69f0ae; border: 1px solid #00e67666; }
+    .tag-bear { background: rgba(255,82,82,0.15); color: #ff8a80; border: 1px solid #ff525266; }
+    .tag-full { background: rgba(0,229,255,0.15); color: #84ffff; border: 1px solid #00e5ff66; }
 
-    /* Big primary-style buttons */
     .stButton > button {
-        border-radius: 14px !important;
+        border-radius: 16px !important;
         font-weight: 800 !important;
-        min-height: 3.15rem !important;
-        font-size: 1.05rem !important;
+        min-height: 3.1rem !important;
+        font-size: 1rem !important;
         border: none !important;
+        width: 100% !important;
+        letter-spacing: 0.02em !important;
     }
     .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00c853, #00e676) !important;
-        color: #04140a !important;
-        box-shadow: 0 6px 18px rgba(0, 230, 118, 0.28) !important;
-        min-height: 3.6rem !important;
+        background: linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%) !important;
+        color: #03150a !important;
+        box-shadow: 0 0 28px rgba(0, 230, 118, 0.45), 0 8px 20px rgba(0,0,0,0.3) !important;
+        min-height: 3.65rem !important;
         font-size: 1.15rem !important;
+        border: 1px solid #69f0ae88 !important;
+    }
+    .stButton > button[kind="secondary"] {
+        background: linear-gradient(145deg, rgba(40,30,80,0.9), rgba(20,25,55,0.95)) !important;
+        color: #e8eaf6 !important;
+        border: 1px solid rgba(124, 77, 255, 0.45) !important;
+        box-shadow: 0 0 12px rgba(124, 77, 255, 0.15) !important;
     }
 
-    /* Market row buttons */
-    div[data-testid="column"] .stButton > button {
-        min-height: 3.2rem !important;
-        font-size: 1rem !important;
-        font-weight: 800 !important;
+    /* Neon market buttons */
+    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00c853, #1de9b6) !important;
+        color: #03150a !important;
+        box-shadow: 0 0 18px #00e67666 !important;
+        border: 1px solid #00e676aa !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #7c4dff, #e040fb) !important;
+        color: #fff !important;
+        box-shadow: 0 0 18px #7c4dff66 !important;
+        border: 1px solid #e040fbaa !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00b0ff, #2979ff) !important;
+        color: #fff !important;
+        box-shadow: 0 0 18px #00b0ff66 !important;
+        border: 1px solid #40c4ffaa !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button[kind="secondary"] {
+        border: 1px solid #00e67655 !important; color: #69f0ae !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button[kind="secondary"] {
+        border: 1px solid #e040fb55 !important; color: #ea80fc !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button[kind="secondary"] {
+        border: 1px solid #00b0ff55 !important; color: #80d8ff !important;
     }
 
     .stTextArea textarea, .stTextInput input {
-        border-radius: 12px !important;
-        font-size: 1rem !important;
+        border-radius: 14px !important;
+        font-size: 0.98rem !important;
+        background: rgba(12, 16, 36, 0.85) !important;
+        border: 1px solid rgba(124, 77, 255, 0.35) !important;
+        color: #f0f4ff !important;
     }
-    .stSelectbox label, .stSlider label, .stToggle label {
-        font-size: 1rem !important;
+    .stSelectbox label, .stSlider label, .stToggle label, .stCheckbox label {
+        font-size: 0.95rem !important;
+        color: #c5cae9 !important;
+        font-weight: 700 !important;
     }
-    .stProgress > div > div { background: linear-gradient(90deg, #00c853, #00e676); }
+    .stProgress > div > div {
+        background: linear-gradient(90deg, #7c4dff, #00e5ff, #00e676, #ffea00) !important;
+    }
+    div[data-baseweb="slider"] div[role="slider"] {
+        background: linear-gradient(90deg, #00e676, #ffea00) !important;
+        box-shadow: 0 0 10px #00e67688 !important;
+    }
 
-    /* Center primary scan area */
-    .scan-wrap { text-align: center; margin: 0.4rem 0 0.2rem 0; }
+    @media (max-width: 640px) {
+        .block-container {
+            max-width: 100% !important;
+            padding-left: 0.65rem !important;
+            padding-right: 0.65rem !important;
+        }
+        .hero h1 { font-size: 1.75rem !important; }
+        .stButton > button { min-height: 2.95rem !important; }
+        .stButton > button[kind="primary"] { min-height: 3.45rem !important; font-size: 1.1rem !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800;900&display=swap');
+    html, body, [class*="css"], .stApp, button { font-family: 'Poppins', system-ui, sans-serif !important; }
+    html, body, [class*="css"] { font-size: 16px !important; }
+    .stApp {
+        background:
+            radial-gradient(800px 400px at 10% 0%, #e1bee7aa 0%, transparent 50%),
+            radial-gradient(700px 400px at 100% 10%, #b2ebf2aa 0%, transparent 50%),
+            linear-gradient(165deg, #f3e5f5 0%, #e3f2fd 50%, #e8f5e9 100%) !important;
+        color: #1a237e !important;
+    }
+    #MainMenu, footer, header, [data-testid="stSidebar"] { display: none !important; }
+    .stDeployButton { display: none; }
+    .block-container {
+        padding-top: 0.45rem !important; padding-bottom: 2.2rem !important;
+        padding-left: 0.75rem !important; padding-right: 0.75rem !important;
+        max-width: 430px !important;
+    }
+    .hero { text-align: center; padding: 0.15rem 0 0.65rem 0; }
+    .hero h1 {
+        margin: 0; font-size: 2rem; font-weight: 900;
+        background: linear-gradient(90deg, #00838f, #2e7d32, #f9a825);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p { margin: 0.2rem 0 0 0; color: #546e7a; font-size: 0.88rem; font-weight: 600; }
+    .panel {
+        background: rgba(255,255,255,0.88); border: 1px solid #ce93d8;
+        border-radius: 20px; padding: 0.95rem 1rem; margin-bottom: 0.8rem;
+        box-shadow: 0 10px 28px rgba(103,58,183,0.1); backdrop-filter: blur(8px);
+    }
+    .panel-title { font-size: 0.78rem; font-weight: 800; color: #6a1b9a; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; }
+    .chip {
+        display: inline-block; background: #f3e5f5; border: 1px solid #ce93d8; color: #4a148c;
+        border-radius: 999px; padding: 0.28rem 0.7rem; margin: 0.15rem 0.2rem; font-size: 0.84rem; font-weight: 700;
+    }
+    .card { background: #fff; border-radius: 18px; padding: 1rem; margin-bottom: 0.75rem; border: 1px solid #c5cae9; box-shadow: 0 6px 16px rgba(26,35,126,0.08); }
+    .card-green { border-color: #66bb6a; background: linear-gradient(145deg, #e8f5e9, #fff); }
+    .card-red { border-color: #ef5350; background: linear-gradient(145deg, #ffebee, #fff); }
+    .score { font-size: 1.55rem; font-weight: 900; }
+    .score-green { color: #2e7d32; } .score-yellow { color: #f9a825; } .score-red { color: #c62828; }
+    .tag { display: inline-block; padding: 0.16rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 800; margin-left: 0.25rem; }
+    .tag-bull { background: #e8f5e9; color: #2e7d32; border: 1px solid #81c784; }
+    .tag-bear { background: #ffebee; color: #c62828; border: 1px solid #e57373; }
+    .tag-full { background: #e3f2fd; color: #1565c0; border: 1px solid #64b5f6; }
+    .stButton > button {
+        border-radius: 16px !important; font-weight: 800 !important;
+        min-height: 3.1rem !important; font-size: 1rem !important; border: none !important; width: 100% !important;
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00c853, #43a047) !important; color: #fff !important;
+        box-shadow: 0 8px 22px rgba(0,200,83,0.3) !important; min-height: 3.65rem !important; font-size: 1.15rem !important;
+    }
+    .stButton > button[kind="secondary"] {
+        background: #fff !important; color: #4a148c !important; border: 1px solid #ce93d8 !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00c853, #1de9b6) !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #7c4dff, #e040fb) !important; color: #fff !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00b0ff, #2979ff) !important; color: #fff !important;
+    }
+    .stTextArea textarea, .stTextInput input {
+        border-radius: 14px !important; background: #fff !important; border: 1px solid #ce93d8 !important; color: #1a237e !important;
+    }
+    .stSelectbox label, .stSlider label, .stToggle label { color: #4a148c !important; font-weight: 700 !important; }
+    .stProgress > div > div { background: linear-gradient(90deg, #7c4dff, #00e5ff, #00e676) !important; }
+    @media (max-width: 640px) {
+        .block-container { max-width: 100% !important; padding-left: 0.65rem !important; padding-right: 0.65rem !important; }
+        .hero h1 { font-size: 1.75rem !important; }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Theme toggle
+tc1, tc2 = st.columns([4, 1])
+with tc2:
+    theme_label = "☀️ Light" if is_dark else "🌙 Dark"
+    if st.button(theme_label, key="theme_toggle", use_container_width=True):
+        st.session_state["theme"] = "light" if is_dark else "dark"
+        st.rerun()
 
 st.markdown("""
 <div class="hero">
   <h1>PA Scanner</h1>
-  <p>Price Action • Intraday • Mobile</p>
+  <p>SCAN · ANALYZE · TRADE</p>
 </div>
 """, unsafe_allow_html=True)
+
 
 # ---------- data ----------
 watchlists = load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS)
@@ -571,6 +775,12 @@ if "view" not in st.session_state:
     st.session_state["view"] = "scan"  # scan | results | history
 if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = False
+if "refresh_minutes" not in st.session_state:
+    st.session_state["refresh_minutes"] = 5
+if "next_scan_at" not in st.session_state:
+    st.session_state["next_scan_at"] = None  # epoch seconds; timer continues across views
+if "force_scan" not in st.session_state:
+    st.session_state["force_scan"] = False
 if "rules_edit" not in st.session_state:
     st.session_state["rules_edit"] = False
 if "rules_backup" not in st.session_state:
@@ -644,16 +854,42 @@ if st.session_state["view"] == "scan":
     only_full = st.toggle("Full Matches Only", value=False, key=f"full_{market}")
     auto_refresh = st.toggle("Auto Refresh", value=st.session_state["auto_refresh"], key="auto_ref_toggle")
     st.session_state["auto_refresh"] = auto_refresh
+
     if auto_refresh:
-        refresh_sec = st.select_slider("Every", options=[60, 120, 180, 300], value=120, format_func=lambda x: f"{x//60} min")
-    else:
-        refresh_sec = 120
+        st.caption("Refresh interval")
+        interval_opts = [1, 5, 15, 30, 45, 60]
+        # row of interval chips
+        cols = st.columns(6)
+        for i, m in enumerate(interval_opts):
+            with cols[i]:
+                lab = f"{m}m"
+                active = st.session_state["refresh_minutes"] == m
+                if st.button(lab, key=f"refint_{m}", use_container_width=True, type="primary" if active else "secondary"):
+                    st.session_state["refresh_minutes"] = m
+                    # do not reset next_scan_at here — timer keeps running
+                    st.rerun()
+        # countdown info
+        nsa = st.session_state.get("next_scan_at")
+        if nsa:
+            left = int(nsa - time.time())
+            if left > 0:
+                st.info(f"⏳ Next auto scan in **{left // 60}m {left % 60}s**")
+            else:
+                st.info("⏳ Auto scan due now…")
+        else:
+            st.caption("Timer starts after the next completed scan")
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # SCAN button centered & big
+    # SCAN + Refresh Now
     st.markdown("<div class='scan-wrap'>", unsafe_allow_html=True)
-    run = st.button(f"🔥 SCAN NOW", type="primary", use_container_width=True, key="scan_main")
+    run = st.button("🔥 SCAN NOW", type="primary", use_container_width=True, key="scan_main")
     st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
+    if st.button("🔄 Refresh Now", use_container_width=True, key="refresh_now"):
+        st.session_state["force_scan"] = True
+        st.rerun()
 
     st.markdown("<div style='height:0.55rem'></div>", unsafe_allow_html=True)
     if st.button("📊 RESULTS", use_container_width=True, key="goto_results"):
@@ -722,16 +958,19 @@ if st.session_state["view"] == "scan":
     # Scanner rules section (last)
     st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='panel-title'>🔍 Scanner rules</div>", unsafe_allow_html=True)
-    with st.expander("Tap to view / edit rules", expanded=False):
+    with st.expander("Tap to view / manage rules", expanded=False):
         st.write(scanners[scanner_name].get("description", "Price action scanner"))
         rules = active_rules
         st.markdown(
             f"""
+**Active rules**
 - Near S/R: **{'ON' if rules.get('require_near_sr') else 'OFF'}** ({rules.get('sr_pct', 1)}%)
+- HL / LH structure: **{'ON' if rules.get('require_structure', True) else 'OFF'}**
+- Healthy break candle: **{'ON' if rules.get('require_healthy_break', True) else 'OFF'}**
+- Rejection / doji after break: **{'ON' if rules.get('require_pin_bar') else 'OFF'}**
+- Rejection vol > Breakout vol: **{'ON' if rules.get('require_high_volume_rejection') else 'OFF'}**
 - Consolidation: **{'ON' if rules.get('require_consolidation') else 'OFF'}**
-- Volume dry: **{'ON' if rules.get('require_volume_dry') else 'OFF'}**
-- Rejection candle: **{'ON' if rules.get('require_pin_bar') else 'OFF'}**
-- High vol rejection: **{'ON' if rules.get('require_high_volume_rejection') else 'OFF'}**
+- Volume dry before break: **{'ON' if rules.get('require_volume_dry') else 'OFF'}**
 """
         )
         e1, e2, e3 = st.columns(3)
@@ -763,25 +1002,57 @@ if st.session_state["view"] == "scan":
 
         if st.session_state.get("rules_edit"):
             st.markdown("---")
-            st.caption("Edit rules")
+            st.caption("Toggle / adjust rules (saved on this server)")
             r = dict(active_rules)
             r["require_near_sr"] = st.checkbox("Near Support/Resistance", value=r.get("require_near_sr", True))
-            r["sr_pct"] = st.slider("S/R distance %", 0.2, 2.0, float(r.get("sr_pct", 1.0)), 0.1)
-            r["require_consolidation"] = st.checkbox("Consolidation", value=r.get("require_consolidation", True))
-            r["require_volume_dry"] = st.checkbox("Volume drying", value=r.get("require_volume_dry", True))
-            r["require_pin_bar"] = st.checkbox("Rejection candle", value=r.get("require_pin_bar", True))
+            r["sr_pct"] = st.slider("S/R distance %", 0.2, 2.0, float(r.get("sr_pct", 0.3)), 0.1)
+            r["require_structure"] = st.checkbox("Higher low / Lower high structure", value=r.get("require_structure", True))
+            r["require_healthy_break"] = st.checkbox("Healthy breakout/breakdown candle", value=r.get("require_healthy_break", True))
+            r["require_pin_bar"] = st.checkbox("Rejection or doji after break", value=r.get("require_pin_bar", True))
             r["require_high_volume_rejection"] = st.checkbox(
-                "High volume on rejection", value=r.get("require_high_volume_rejection", True)
+                "Rejection volume > breakout volume", value=r.get("require_high_volume_rejection", True)
             )
+            r["require_consolidation"] = st.checkbox("Consolidation before break", value=r.get("require_consolidation", True))
+            r["require_volume_dry"] = st.checkbox("Volume drying before break", value=r.get("require_volume_dry", True))
             if st.button("💾 Save rules", type="primary", use_container_width=True):
                 scanners[scanner_name]["rules"] = r
                 save_json(SCANNERS_FILE, scanners)
                 st.session_state["rules_edit"] = False
-                st.success("Rules saved")
+                st.success("Rules saved — no app update needed")
                 st.rerun()
             if st.button("Cancel edit", use_container_width=True):
                 st.session_state["rules_edit"] = False
                 st.rerun()
+
+        st.markdown("---")
+        st.caption("Scanner profiles")
+        new_profile = st.text_input("New profile name", placeholder="My strict scanner")
+        if st.button("➕ Add profile (copy current rules)", use_container_width=True):
+            if new_profile and new_profile.strip():
+                name = new_profile.strip()
+                if name not in scanners:
+                    scanners[name] = {
+                        "description": f"Custom profile: {name}",
+                        "rules": dict(active_rules),
+                    }
+                    save_json(SCANNERS_FILE, scanners)
+                    st.success(f"Added profile {name}")
+                    st.rerun()
+                else:
+                    st.warning("Name already exists")
+            else:
+                st.warning("Enter a name")
+
+        for nm in list(scanners.keys()):
+            c1, c2 = st.columns([4, 1])
+            c1.write(f"• **{nm}**" + (" ← active" if nm == scanner_name else ""))
+            if c2.button("🗑", key=f"del_prof_{nm}"):
+                if len(scanners) <= 1:
+                    st.warning("Keep at least one profile")
+                else:
+                    del scanners[nm]
+                    save_json(SCANNERS_FILE, scanners)
+                    st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
     # History shortcut
@@ -802,7 +1073,17 @@ if st.session_state["view"] == "scan":
             st.success("Saved")
 
     # ---- run scan ----
-    should = run or auto_refresh
+    # Auto scan only when timer elapsed — NOT when returning from Results
+    due_auto = False
+    if st.session_state.get("auto_refresh") and st.session_state.get("next_scan_at") is not None:
+        if time.time() >= st.session_state["next_scan_at"]:
+            due_auto = True
+
+    force = st.session_state.get("force_scan", False)
+    should = run or force or due_auto
+    if force:
+        st.session_state["force_scan"] = False
+
     if should:
         if not current_list:
             st.error("Watchlist empty. Add symbols first.")
@@ -869,10 +1150,25 @@ if st.session_state["view"] == "scan":
             else:
                 st.warning("No setups found. Try lower score or other TF.")
 
-            if auto_refresh:
-                with st.spinner(f"Next auto scan in {refresh_sec//60} min..."):
-                    time.sleep(refresh_sec)
-                st.rerun()
+            # Schedule next auto scan from NOW (timer not tied to Results view)
+            if st.session_state.get("auto_refresh"):
+                mins = int(st.session_state.get("refresh_minutes", 5))
+                st.session_state["next_scan_at"] = time.time() + mins * 60
+            else:
+                st.session_state["next_scan_at"] = None
+
+# Soft poll for countdown / due auto (does not reset timer when visiting Results)
+if st.session_state.get("view") == "scan" and st.session_state.get("auto_refresh"):
+    nsa = st.session_state.get("next_scan_at")
+    if nsa is not None:
+        left = nsa - time.time()
+        if left <= 0:
+            st.session_state["force_scan"] = True
+            st.rerun()
+        else:
+            # update countdown about every 15s without restarting the full interval
+            time.sleep(min(15, max(1, left)))
+            st.rerun()
 
 # ---------- RESULTS VIEW ----------
 elif st.session_state["view"] == "results":
