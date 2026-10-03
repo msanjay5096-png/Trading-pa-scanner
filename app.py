@@ -455,6 +455,7 @@ def scan_symbol(symbol, interval="5m", rules=None):
 
 
 
+
 # ====================== STREAMLIT APP ======================
 st.set_page_config(
     page_title="PA Scanner",
@@ -465,302 +466,236 @@ st.set_page_config(
 
 if "theme" not in st.session_state:
     st.session_state["theme"] = "dark"
+if "nav" not in st.session_state:
+    st.session_state["nav"] = "scan"
 
-theme = st.session_state["theme"]
-is_dark = theme == "dark"
+is_dark = st.session_state["theme"] == "dark"
 
-# ===== NEON GRADIENT UI (matched to preview) =====
-if is_dark:
-    st.markdown("""
+st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800;900&display=swap');
 
-    html, body, [class*="css"], .stApp, button, input, textarea, label {
-        font-family: 'Poppins', system-ui, sans-serif !important;
-    }
-    html, body, [class*="css"] { font-size: 16px !important; }
+html, body, [class*="css"], .stApp, button, input, label, textarea {
+  font-family: 'Poppins', system-ui, sans-serif !important;
+}
+html, body, [class*="css"] { font-size: 15.5px !important; }
 
-    .stApp {
-        background:
-            radial-gradient(900px 500px at 15% 0%, #7c4dff66 0%, transparent 55%),
-            radial-gradient(800px 450px at 95% 15%, #00e5ff44 0%, transparent 50%),
-            radial-gradient(700px 400px at 50% 100%, #00e67655 0%, transparent 50%),
-            linear-gradient(165deg, #0a0618 0%, #12082a 40%, #071820 100%) !important;
-        color: #f0f4ff !important;
-    }
-    #MainMenu, footer, header, [data-testid="stSidebar"] { display: none !important; }
-    .stDeployButton { display: none; }
+.stApp {
+  background:
+    radial-gradient(900px 520px at 10% -5%, #7c4dff77 0%, transparent 55%),
+    radial-gradient(800px 480px at 100% 10%, #00e5ff55 0%, transparent 50%),
+    radial-gradient(700px 420px at 50% 110%, #00e67655 0%, transparent 55%),
+    linear-gradient(165deg, #070414 0%, #12082a 45%, #061820 100%) !important;
+  color: #f0f4ff !important;
+}
+#MainMenu, footer, header, [data-testid="stSidebar"], .stDeployButton { display: none !important; }
 
-    .block-container {
-        padding-top: 0.45rem !important;
-        padding-bottom: 2.2rem !important;
-        padding-left: 0.75rem !important;
-        padding-right: 0.75rem !important;
-        max-width: 430px !important;
-    }
+.block-container {
+  padding-top: 0.35rem !important;
+  padding-bottom: 5.5rem !important;
+  padding-left: 0.7rem !important;
+  padding-right: 0.7rem !important;
+  max-width: 430px !important;
+}
 
-    .hero { text-align: center; padding: 0.15rem 0 0.65rem 0; }
-    .hero h1 {
-        margin: 0;
-        font-size: 2rem;
-        font-weight: 900;
-        letter-spacing: -0.5px;
-        background: linear-gradient(90deg, #00e5ff 0%, #00e676 45%, #ffea00 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        filter: drop-shadow(0 0 20px #00e5ff55);
-    }
-    .hero p {
-        margin: 0.2rem 0 0 0;
-        color: #9eb0d0;
-        font-size: 0.88rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-    }
+/* Header */
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+.app-header h1 {
+  margin: 0; font-size: 1.55rem; font-weight: 900; letter-spacing: -0.4px;
+  background: linear-gradient(90deg, #00e5ff, #00e676, #ffea00);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 16px #00e5ff44);
+}
 
-    .panel {
-        background: linear-gradient(145deg, rgba(30,20,60,0.75), rgba(12,18,40,0.8));
-        border: 1px solid rgba(124, 77, 255, 0.35);
-        border-radius: 20px;
-        padding: 0.95rem 1rem;
-        margin-bottom: 0.8rem;
-        box-shadow: 0 12px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
-        backdrop-filter: blur(12px);
-    }
-    .panel-title {
-        font-size: 0.78rem;
-        font-weight: 800;
-        color: #b39ddb;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin-bottom: 0.5rem;
-    }
+/* Glass panel */
+.panel {
+  background: linear-gradient(145deg, rgba(40,28,75,0.72), rgba(14,18,40,0.82));
+  border: 1px solid rgba(140,100,255,0.35);
+  border-radius: 22px;
+  padding: 0.95rem 1rem;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+  backdrop-filter: blur(14px);
+}
+.panel-title {
+  font-size: 0.72rem; font-weight: 800; color: #b39ddb;
+  text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 0.45rem;
+}
 
-    .chip {
-        display: inline-block;
-        background: rgba(30, 40, 80, 0.8);
-        border: 1px solid rgba(0, 229, 255, 0.35);
-        color: #e0f7fa;
-        border-radius: 999px;
-        padding: 0.28rem 0.7rem;
-        margin: 0.15rem 0.2rem 0.15rem 0;
-        font-size: 0.84rem;
-        font-weight: 700;
-    }
+/* Result cards */
+.card {
+  background: linear-gradient(145deg, rgba(28,22,55,0.92), rgba(14,18,40,0.95));
+  border-radius: 16px; padding: 0.9rem 1rem; margin-bottom: 0.65rem;
+  border: 1px solid rgba(100,120,255,0.25);
+}
+.card-green { border-color: rgba(0,230,118,0.5); box-shadow: 0 0 20px rgba(0,230,118,0.12); }
+.card-red { border-color: rgba(255,82,82,0.45); box-shadow: 0 0 20px rgba(255,82,82,0.1); }
+.score { font-size: 1.45rem; font-weight: 900; }
+.score-green { color: #00e676; text-shadow: 0 0 12px #00e67666; }
+.score-yellow { color: #ffea00; }
+.score-red { color: #ff5252; }
+.tag {
+  display: inline-block; padding: 0.14rem 0.5rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 800; margin-left: 0.2rem;
+}
+.tag-bull { background: rgba(0,230,118,0.15); color: #69f0ae; border: 1px solid #00e67655; }
+.tag-bear { background: rgba(255,82,82,0.15); color: #ff8a80; border: 1px solid #ff525255; }
+.tag-full { background: rgba(0,229,255,0.15); color: #84ffff; border: 1px solid #00e5ff55; }
 
-    .card {
-        background: linear-gradient(145deg, rgba(28,22,55,0.9), rgba(14,18,40,0.95));
-        border-radius: 18px;
-        padding: 1rem 1.05rem;
-        margin-bottom: 0.75rem;
-        border: 1px solid rgba(100, 120, 255, 0.25);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-    }
-    .card-green {
-        border-color: rgba(0, 230, 118, 0.55);
-        background: linear-gradient(145deg, rgba(10,40,28,0.95), rgba(12,20,30,0.95));
-        box-shadow: 0 0 24px rgba(0, 230, 118, 0.15);
-    }
-    .card-red {
-        border-color: rgba(255, 82, 82, 0.5);
-        background: linear-gradient(145deg, rgba(40,12,20,0.95), rgba(18,12,20,0.95));
-        box-shadow: 0 0 24px rgba(255, 82, 82, 0.12);
-    }
+/* Watchlist mini cards */
+.wl-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem;
+}
+.wl-card {
+  background: rgba(20,16,45,0.9);
+  border: 1px solid rgba(120,100,220,0.3);
+  border-radius: 14px;
+  padding: 0.55rem 0.6rem;
+}
+.wl-card .sym { font-weight: 800; font-size: 0.9rem; color: #e8eaf6; }
+.wl-card .meta { font-size: 0.72rem; color: #90a4c8; margin-top: 0.15rem; }
 
-    .score { font-size: 1.55rem; font-weight: 900; }
-    .score-green { color: #00e676; text-shadow: 0 0 14px #00e67666; }
-    .score-yellow { color: #ffea00; text-shadow: 0 0 14px #ffea0066; }
-    .score-red { color: #ff5252; text-shadow: 0 0 14px #ff525266; }
+/* Buttons */
+.stButton > button {
+  border-radius: 16px !important; font-weight: 800 !important;
+  min-height: 2.9rem !important; font-size: 0.95rem !important;
+  border: none !important; width: 100% !important;
+}
+.stButton > button[kind="primary"] {
+  background: linear-gradient(135deg, #00e676 0%, #69f0ae 100%) !important;
+  color: #03150a !important;
+  box-shadow: 0 0 32px rgba(0,230,118,0.5), 0 8px 20px rgba(0,0,0,0.3) !important;
+  min-height: 3.7rem !important; font-size: 1.2rem !important;
+  border: 1px solid #b9f6ca !important;
+  letter-spacing: 0.03em !important;
+}
+.stButton > button[kind="secondary"] {
+  background: rgba(30,24,60,0.85) !important;
+  color: #e8eaf6 !important;
+  border: 1px solid rgba(140,100,255,0.4) !important;
+}
 
-    .tag {
-        display: inline-block;
-        padding: 0.16rem 0.55rem;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        font-weight: 800;
-        margin-left: 0.25rem;
-    }
-    .tag-bull { background: rgba(0,230,118,0.15); color: #69f0ae; border: 1px solid #00e67666; }
-    .tag-bear { background: rgba(255,82,82,0.15); color: #ff8a80; border: 1px solid #ff525266; }
-    .tag-full { background: rgba(0,229,255,0.15); color: #84ffff; border: 1px solid #00e5ff66; }
+/* Horizontal radio = market pills */
+div[role="radiogroup"] {
+  display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important;
+  gap: 0.4rem !important; width: 100% !important; margin-bottom: 0.55rem !important;
+}
+div[role="radiogroup"] > label {
+  flex: 1 1 0 !important;
+  background: rgba(18,14,40,0.85) !important;
+  border: 1.5px solid rgba(0,230,118,0.35) !important;
+  border-radius: 16px !important;
+  padding: 0.65rem 0.15rem !important;
+  margin: 0 !important;
+  justify-content: center !important;
+  text-align: center !important;
+  font-weight: 800 !important;
+  font-size: 0.84rem !important;
+  color: #aeb6d9 !important;
+}
+div[role="radiogroup"] label:has(input:checked) {
+  background: rgba(0,40,30,0.55) !important;
+  color: #69f0ae !important;
+  border-color: #00e676 !important;
+  box-shadow: 0 0 16px rgba(0,230,118,0.35) !important;
+}
+/* color variants via order */
+div[role="radiogroup"] > label:nth-child(1) { border-color: rgba(0,230,118,0.45) !important; }
+div[role="radiogroup"] > label:nth-child(2) { border-color: rgba(224,64,251,0.45) !important; }
+div[role="radiogroup"] > label:nth-child(3) { border-color: rgba(0,176,255,0.45) !important; }
+div[role="radiogroup"] > label:nth-child(1):has(input:checked) {
+  border-color: #00e676 !important; color: #69f0ae !important;
+  box-shadow: 0 0 16px rgba(0,230,118,0.4) !important;
+}
+div[role="radiogroup"] > label:nth-child(2):has(input:checked) {
+  border-color: #e040fb !important; color: #ea80fc !important;
+  background: rgba(60,10,70,0.5) !important;
+  box-shadow: 0 0 16px rgba(224,64,251,0.35) !important;
+}
+div[role="radiogroup"] > label:nth-child(3):has(input:checked) {
+  border-color: #00b0ff !important; color: #80d8ff !important;
+  background: rgba(10,30,70,0.5) !important;
+  box-shadow: 0 0 16px rgba(0,176,255,0.35) !important;
+}
 
-    .stButton > button {
-        border-radius: 16px !important;
-        font-weight: 800 !important;
-        min-height: 3.1rem !important;
-        font-size: 1rem !important;
-        border: none !important;
-        width: 100% !important;
-        letter-spacing: 0.02em !important;
-    }
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%) !important;
-        color: #03150a !important;
-        box-shadow: 0 0 28px rgba(0, 230, 118, 0.45), 0 8px 20px rgba(0,0,0,0.3) !important;
-        min-height: 3.65rem !important;
-        font-size: 1.15rem !important;
-        border: 1px solid #69f0ae88 !important;
-    }
-    .stButton > button[kind="secondary"] {
-        background: linear-gradient(145deg, rgba(40,30,80,0.9), rgba(20,25,55,0.95)) !important;
-        color: #e8eaf6 !important;
-        border: 1px solid rgba(124, 77, 255, 0.45) !important;
-        box-shadow: 0 0 12px rgba(124, 77, 255, 0.15) !important;
-    }
+.stTextArea textarea, .stTextInput input {
+  border-radius: 14px !important;
+  background: rgba(12,16,36,0.85) !important;
+  border: 1px solid rgba(124,77,255,0.35) !important;
+  color: #f0f4ff !important;
+}
+.stSelectbox label, .stSlider label, .stToggle label, .stCheckbox label {
+  color: #c5cae9 !important; font-weight: 700 !important; font-size: 0.9rem !important;
+}
+.stProgress {
+  height: 1.2rem !important;
+}
+.stProgress > div {
+  height: 1.2rem !important;
+  border-radius: 999px !important;
+  background: rgba(30, 25, 60, 0.9) !important;
+  border: 1px solid rgba(0,230,118,0.35) !important;
+}
+.stProgress > div > div {
+  height: 1.2rem !important;
+  border-radius: 999px !important;
+  background: linear-gradient(90deg, #00e676, #ffea00, #ff9100) !important;
+}
 
-    /* Neon market buttons */
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00c853, #1de9b6) !important;
-        color: #03150a !important;
-        box-shadow: 0 0 18px #00e67666 !important;
-        border: 1px solid #00e676aa !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #7c4dff, #e040fb) !important;
-        color: #fff !important;
-        box-shadow: 0 0 18px #7c4dff66 !important;
-        border: 1px solid #e040fbaa !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00b0ff, #2979ff) !important;
-        color: #fff !important;
-        box-shadow: 0 0 18px #00b0ff66 !important;
-        border: 1px solid #40c4ffaa !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button[kind="secondary"] {
-        border: 1px solid #00e67655 !important; color: #69f0ae !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button[kind="secondary"] {
-        border: 1px solid #e040fb55 !important; color: #ea80fc !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button[kind="secondary"] {
-        border: 1px solid #00b0ff55 !important; color: #80d8ff !important;
-    }
+/* Bottom nav */
+.bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(180deg, rgba(10,8,24,0.75), rgba(10,8,24,0.96));
+  border-top: 1px solid rgba(124,77,255,0.25);
+  backdrop-filter: blur(16px);
+  display: flex; justify-content: space-around; align-items: center;
+  padding: 0.45rem 0.4rem 0.7rem 0.4rem;
+  z-index: 999;
+}
+.bottom-nav .item {
+  text-align: center; color: #8a9bb8; font-size: 0.68rem; font-weight: 700;
+  min-width: 56px;
+}
+.bottom-nav .item.active {
+  color: #69f0ae;
+}
+.bottom-nav .icon {
+  font-size: 1.25rem; display: block; margin-bottom: 0.1rem;
+}
+.bottom-nav .scan-fab {
+  width: 54px; height: 54px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #69f0ae, #00c853);
+  color: #03150a; font-size: 1.4rem;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 22px rgba(0,230,118,0.55);
+  margin-top: -18px;
+  border: 2px solid #b9f6ca;
+}
 
-    .stTextArea textarea, .stTextInput input {
-        border-radius: 14px !important;
-        font-size: 0.98rem !important;
-        background: rgba(12, 16, 36, 0.85) !important;
-        border: 1px solid rgba(124, 77, 255, 0.35) !important;
-        color: #f0f4ff !important;
-    }
-    .stSelectbox label, .stSlider label, .stToggle label, .stCheckbox label {
-        font-size: 0.95rem !important;
-        color: #c5cae9 !important;
-        font-weight: 700 !important;
-    }
-    .stProgress > div > div {
-        background: linear-gradient(90deg, #7c4dff, #00e5ff, #00e676, #ffea00) !important;
-    }
-    div[data-baseweb="slider"] div[role="slider"] {
-        background: linear-gradient(90deg, #00e676, #ffea00) !important;
-        box-shadow: 0 0 10px #00e67688 !important;
-    }
-
-    @media (max-width: 640px) {
-        .block-container {
-            max-width: 100% !important;
-            padding-left: 0.65rem !important;
-            padding-right: 0.65rem !important;
-        }
-        .hero h1 { font-size: 1.75rem !important; }
-        .stButton > button { min-height: 2.95rem !important; }
-        .stButton > button[kind="primary"] { min-height: 3.45rem !important; font-size: 1.1rem !important; }
-    }
-</style>
-""", unsafe_allow_html=True)
-else:
-    st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800;900&display=swap');
-    html, body, [class*="css"], .stApp, button { font-family: 'Poppins', system-ui, sans-serif !important; }
-    html, body, [class*="css"] { font-size: 16px !important; }
-    .stApp {
-        background:
-            radial-gradient(800px 400px at 10% 0%, #e1bee7aa 0%, transparent 50%),
-            radial-gradient(700px 400px at 100% 10%, #b2ebf2aa 0%, transparent 50%),
-            linear-gradient(165deg, #f3e5f5 0%, #e3f2fd 50%, #e8f5e9 100%) !important;
-        color: #1a237e !important;
-    }
-    #MainMenu, footer, header, [data-testid="stSidebar"] { display: none !important; }
-    .stDeployButton { display: none; }
-    .block-container {
-        padding-top: 0.45rem !important; padding-bottom: 2.2rem !important;
-        padding-left: 0.75rem !important; padding-right: 0.75rem !important;
-        max-width: 430px !important;
-    }
-    .hero { text-align: center; padding: 0.15rem 0 0.65rem 0; }
-    .hero h1 {
-        margin: 0; font-size: 2rem; font-weight: 900;
-        background: linear-gradient(90deg, #00838f, #2e7d32, #f9a825);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    }
-    .hero p { margin: 0.2rem 0 0 0; color: #546e7a; font-size: 0.88rem; font-weight: 600; }
-    .panel {
-        background: rgba(255,255,255,0.88); border: 1px solid #ce93d8;
-        border-radius: 20px; padding: 0.95rem 1rem; margin-bottom: 0.8rem;
-        box-shadow: 0 10px 28px rgba(103,58,183,0.1); backdrop-filter: blur(8px);
-    }
-    .panel-title { font-size: 0.78rem; font-weight: 800; color: #6a1b9a; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; }
-    .chip {
-        display: inline-block; background: #f3e5f5; border: 1px solid #ce93d8; color: #4a148c;
-        border-radius: 999px; padding: 0.28rem 0.7rem; margin: 0.15rem 0.2rem; font-size: 0.84rem; font-weight: 700;
-    }
-    .card { background: #fff; border-radius: 18px; padding: 1rem; margin-bottom: 0.75rem; border: 1px solid #c5cae9; box-shadow: 0 6px 16px rgba(26,35,126,0.08); }
-    .card-green { border-color: #66bb6a; background: linear-gradient(145deg, #e8f5e9, #fff); }
-    .card-red { border-color: #ef5350; background: linear-gradient(145deg, #ffebee, #fff); }
-    .score { font-size: 1.55rem; font-weight: 900; }
-    .score-green { color: #2e7d32; } .score-yellow { color: #f9a825; } .score-red { color: #c62828; }
-    .tag { display: inline-block; padding: 0.16rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 800; margin-left: 0.25rem; }
-    .tag-bull { background: #e8f5e9; color: #2e7d32; border: 1px solid #81c784; }
-    .tag-bear { background: #ffebee; color: #c62828; border: 1px solid #e57373; }
-    .tag-full { background: #e3f2fd; color: #1565c0; border: 1px solid #64b5f6; }
-    .stButton > button {
-        border-radius: 16px !important; font-weight: 800 !important;
-        min-height: 3.1rem !important; font-size: 1rem !important; border: none !important; width: 100% !important;
-    }
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00c853, #43a047) !important; color: #fff !important;
-        box-shadow: 0 8px 22px rgba(0,200,83,0.3) !important; min-height: 3.65rem !important; font-size: 1.15rem !important;
-    }
-    .stButton > button[kind="secondary"] {
-        background: #fff !important; color: #4a148c !important; border: 1px solid #ce93d8 !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00c853, #1de9b6) !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #7c4dff, #e040fb) !important; color: #fff !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00b0ff, #2979ff) !important; color: #fff !important;
-    }
-    .stTextArea textarea, .stTextInput input {
-        border-radius: 14px !important; background: #fff !important; border: 1px solid #ce93d8 !important; color: #1a237e !important;
-    }
-    .stSelectbox label, .stSlider label, .stToggle label { color: #4a148c !important; font-weight: 700 !important; }
-    .stProgress > div > div { background: linear-gradient(90deg, #7c4dff, #00e5ff, #00e676) !important; }
-    @media (max-width: 640px) {
-        .block-container { max-width: 100% !important; padding-left: 0.65rem !important; padding-right: 0.65rem !important; }
-        .hero h1 { font-size: 1.75rem !important; }
-    }
+@media (max-width: 640px) {
+  .block-container { max-width: 100% !important; }
+  .app-header h1 { font-size: 1.4rem !important; }
+  div[role="radiogroup"] > label { font-size: 0.78rem !important; padding: 0.6rem 0.1rem !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
-# Theme toggle
-tc1, tc2 = st.columns([4, 1])
-with tc2:
-    theme_label = "☀️ Light" if is_dark else "🌙 Dark"
+# Header row
+h1, h2, h3 = st.columns([1, 3.2, 1])
+with h1:
+    if st.button("☰", key="hdr_menu", use_container_width=True):
+        st.session_state["nav"] = "settings"
+        st.rerun()
+with h2:
+    st.markdown('<div class="app-header" style="justify-content:center;"><h1>PA Scanner</h1></div>', unsafe_allow_html=True)
+with h3:
+    theme_label = "☀️" if is_dark else "🌙"
     if st.button(theme_label, key="theme_toggle", use_container_width=True):
         st.session_state["theme"] = "light" if is_dark else "dark"
         st.rerun()
-
-st.markdown("""
-<div class="hero">
-  <h1>PA Scanner</h1>
-  <p>SCAN · ANALYZE · TRADE</p>
-</div>
-""", unsafe_allow_html=True)
 
 
 # ---------- data ----------
@@ -794,6 +729,8 @@ if "scan_results" not in st.session_state:
 
 MARKET_ORDER = ["Indian Stocks", "Crypto", "Forex"]
 MARKET_LABEL = {"Indian Stocks": "🇮🇳 Stocks", "Crypto": "₿ Crypto", "Forex": "💱 Forex"}
+# short labels keep 3 buttons on one mobile row
+MARKET_LABEL_SHORT = {"Indian Stocks": "Stocks", "Crypto": "Crypto", "Forex": "Forex"}
 MARKET_COLOR = {
     "Indian Stocks": "#1b5e20",
     "Crypto": "#4a148c",
@@ -810,118 +747,112 @@ if scanner_name not in scanners:
     scanners[scanner_name] = DEFAULT_SCANNERS["My Price Action Scanner"]
 active_rules = scanners[scanner_name]["rules"]
 
-# ---------- Market selector (3 big buttons) ----------
-c1, c2, c3 = st.columns(3)
-for col, mkt in zip([c1, c2, c3], MARKET_ORDER):
-    with col:
-        is_active = st.session_state["market"] == mkt
-        label = MARKET_LABEL[mkt]
-        if st.button(
-            label,
-            key=f"mktbtn_{mkt}",
-            use_container_width=True,
-            type="primary" if is_active else "secondary",
-        ):
-            st.session_state["market"] = mkt
-            st.session_state["show_watchlist"] = False
-            st.session_state["view"] = "scan"
-            st.rerun()
+# ---------- Market selector (horizontal neon pills) ----------
+_mopts = ["Indian Stocks", "Crypto", "Forex"]
+_mlabels = {"Indian Stocks": "📈 Stocks", "Crypto": "₿ Crypto", "Forex": "💱 Forex"}
+try:
+    cur_i = _mopts.index(st.session_state.get("market", "Indian Stocks"))
+except ValueError:
+    cur_i = 0
 
-# Color accent line for selected market
-sel = st.session_state["market"]
-st.markdown(
-    f"<div style='height:4px;border-radius:4px;margin:0.35rem 0 0.8rem 0;background:{MARKET_COLOR[sel]};'></div>",
-    unsafe_allow_html=True,
+picked = st.radio(
+    "Market",
+    options=_mopts,
+    index=cur_i,
+    format_func=lambda x: _mlabels.get(x, x),
+    horizontal=True,
+    label_visibility="collapsed",
+    key="market_radio",
 )
-
-market = st.session_state["market"]
+st.session_state["market"] = picked
+market = picked
 current_list = watchlists.get(market, [])
 
 # ---------- SCAN VIEW ----------
-if st.session_state["view"] == "scan":
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        timeframe = st.selectbox(
-            "Timeframe",
-            ["1m", "3m", "5m", "15m", "1h", "4h", "1d"],
-            index=2,
-            key=f"tf_{market}",
-        )
-    with c2:
-        min_score = st.slider("Min Score", 0, 100, 50, 5, key=f"score_{market}")
-
+if st.session_state["view"] == "scan" or st.session_state.get("nav") == "scan":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">⏱ Timeframe</div>', unsafe_allow_html=True)
+    timeframe = st.selectbox(
+        "Timeframe",
+        ["1m", "3m", "5m", "15m", "1h", "4h", "1d"],
+        index=2,
+        key=f"tf_{market}",
+        label_visibility="collapsed",
+    )
+    st.markdown('<div class="panel-title" style="margin-top:0.55rem;">⭐ Min Score</div>', unsafe_allow_html=True)
+    min_score = st.slider("Min Score", 0, 100, 60, 5, key=f"score_{market}", label_visibility="collapsed")
     only_full = st.toggle("Full Matches Only", value=False, key=f"full_{market}")
-    auto_refresh = st.toggle("Auto Refresh", value=st.session_state["auto_refresh"], key="auto_ref_toggle")
+    auto_refresh = st.toggle("Auto Refresh", value=st.session_state.get("auto_refresh", False), key="auto_ref_toggle")
     st.session_state["auto_refresh"] = auto_refresh
-
     if auto_refresh:
-        st.caption("Refresh interval")
+        st.caption("Interval")
         interval_opts = [1, 5, 15, 30, 45, 60]
-        # row of interval chips
         cols = st.columns(6)
         for i, m in enumerate(interval_opts):
             with cols[i]:
-                lab = f"{m}m"
-                active = st.session_state["refresh_minutes"] == m
-                if st.button(lab, key=f"refint_{m}", use_container_width=True, type="primary" if active else "secondary"):
+                active = st.session_state.get("refresh_minutes", 5) == m
+                if st.button(f"{m}m", key=f"refint_{m}", use_container_width=True, type="primary" if active else "secondary"):
                     st.session_state["refresh_minutes"] = m
-                    # do not reset next_scan_at here — timer keeps running
                     st.rerun()
-        # countdown info
         nsa = st.session_state.get("next_scan_at")
         if nsa:
             left = int(nsa - time.time())
             if left > 0:
-                st.info(f"⏳ Next auto scan in **{left // 60}m {left % 60}s**")
-            else:
-                st.info("⏳ Auto scan due now…")
-        else:
-            st.caption("Timer starts after the next completed scan")
+                st.caption(f"⏳ Next scan in {left // 60}m {left % 60}s")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    # Progress line ABOVE scan button (thicker)
+    progress_slot = st.empty()
+    status_slot = st.empty()
+    progress_slot.progress(0)
 
-    # SCAN + Refresh Now
-    st.markdown("<div class='scan-wrap'>", unsafe_allow_html=True)
-    run = st.button("🔥 SCAN NOW", type="primary", use_container_width=True, key="scan_main")
-    st.markdown("</div>", unsafe_allow_html=True)
+    run = st.button("🎯 SCAN NOW", type="primary", use_container_width=True, key="scan_main")
+    r1, r2 = st.columns(2)
+    with r1:
+        if st.button("🔄 Refresh Now", use_container_width=True, key="refresh_now"):
+            st.session_state["force_scan"] = True
+            st.rerun()
+    with r2:
+        if st.button("📊 Results", use_container_width=True, key="goto_results"):
+            st.session_state["view"] = "results"
+            st.session_state["nav"] = "results"
+            st.rerun()
 
-    st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
-    if st.button("🔄 Refresh Now", use_container_width=True, key="refresh_now"):
-        st.session_state["force_scan"] = True
-        st.rerun()
-
-    st.markdown("<div style='height:0.55rem'></div>", unsafe_allow_html=True)
-    if st.button("📊 RESULTS", use_container_width=True, key="goto_results"):
-        st.session_state["view"] = "results"
-        st.rerun()
-
-    # Watchlist button (count only)
-    st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
-    wl_label = f"📋 Watchlist ({len(current_list)})"
-    if st.button(wl_label, use_container_width=True, key="wl_toggle"):
-        st.session_state["show_watchlist"] = not st.session_state["show_watchlist"]
-        st.rerun()
-
-    if st.session_state["show_watchlist"]:
-        st.markdown("<div class='panel'>", unsafe_allow_html=True)
-        st.markdown(f"<div class='panel-title'>Symbols in {MARKET_LABEL[market]}</div>", unsafe_allow_html=True)
-        if not current_list:
-            st.info("Empty watchlist")
-        else:
-            for i, sym in enumerate(list(current_list)):
-                a, b = st.columns([5, 1])
-                a.write(f"**{sym}**")
-                if b.button("🗑", key=f"del_{market}_{i}"):
-                    current_list.pop(i)
-                    watchlists[market] = current_list
-                    save_json(WATCHLIST_FILE, watchlists)
-                    st.rerun()
-            if st.button("Clear all", key=f"clear_{market}"):
-                watchlists[market] = []
+    # Watchlist panel like preview cards
+# Watchlist cards (preview style)
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.markdown(f'<div class="panel-title">★ Watchlist ({len(current_list)})</div>', unsafe_allow_html=True)
+    if not current_list:
+        st.caption("No symbols yet — add below")
+    else:
+        # show up to 4 mini cards
+        show = current_list[:4]
+        cols = st.columns(2)
+        for i, sym in enumerate(show):
+            with cols[i % 2]:
+                short = sym.replace(".NS", "").replace("-USD", "").replace("=X", "")
+                st.markdown(
+                    f'<div class="wl-card"><div class="sym">{short}</div>'
+                    f'<div class="meta">{market.split()[0]}</div></div>',
+                    unsafe_allow_html=True,
+                )
+        if st.button(f"View all / manage ({len(current_list)})", use_container_width=True, key="wl_toggle"):
+            st.session_state["show_watchlist"] = not st.session_state.get("show_watchlist", False)
+            st.rerun()
+    if st.session_state.get("show_watchlist"):
+        for i, sym in enumerate(list(current_list)):
+            a, b = st.columns([5, 1])
+            a.write(f"**{sym}**")
+            if b.button("🗑", key=f"del_{market}_{i}"):
+                current_list.pop(i)
+                watchlists[market] = current_list
                 save_json(WATCHLIST_FILE, watchlists)
                 st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        if st.button("Clear all", key=f"clear_{market}"):
+            watchlists[market] = []
+            save_json(WATCHLIST_FILE, watchlists)
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # Add symbols below watchlist
     st.markdown("<div class='panel'>", unsafe_allow_html=True)
@@ -1088,21 +1019,18 @@ if st.session_state["view"] == "scan":
         if not current_list:
             st.error("Watchlist empty. Add symbols first.")
         else:
-            progress = st.progress(0)
-            status = st.empty()
             results = []
             for i, sym in enumerate(current_list):
-                status.caption(f"Scanning {sym} ({i+1}/{len(current_list)})")
+                status_slot.caption(f"Scanning {sym} ({i+1}/{len(current_list)})")
                 res = scan_symbol(sym, interval=timeframe, rules=active_rules)
                 if res:
                     if only_full and not res.get("full_match"):
                         pass
                     elif res["score"] >= min_score:
                         results.append(res)
-                progress.progress((i + 1) / max(len(current_list), 1))
+                progress_slot.progress((i + 1) / max(len(current_list), 1))
                 time.sleep(0.08)
-            status.empty()
-            progress.empty()
+            status_slot.caption("Scan complete")
 
             results = sorted(results, key=lambda x: x["score"], reverse=True)
             # drop heavy df for session storage safety in history
@@ -1142,12 +1070,7 @@ if st.session_state["view"] == "scan":
                         msg,
                     )
 
-            if results:
-                st.success(f"Found {len(results)} setup(s)")
-                st.session_state["view"] = "results"
-                time.sleep(0.4)
-                st.rerun()
-            else:
+            if not results:
                 st.warning("No setups found. Try lower score or other TF.")
 
             # Schedule next auto scan from NOW (timer not tied to Results view)
@@ -1155,7 +1078,47 @@ if st.session_state["view"] == "scan":
                 mins = int(st.session_state.get("refresh_minutes", 5))
                 st.session_state["next_scan_at"] = time.time() + mins * 60
             else:
-                st.session_state["next_scan_at"] = None
+                                st.session_state["next_scan_at"] = None
+
+    # Results just below progress line / scan button
+    results = st.session_state.get("scan_results") or []
+    if st.session_state.get("last_scan"):
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="panel-title">Results • {st.session_state.get("last_market","")} • '
+            f'{st.session_state.get("last_tf","")} • {st.session_state.get("last_scan","—")}</div>',
+            unsafe_allow_html=True,
+        )
+        if not results:
+            st.caption("No setups found on last scan.")
+        else:
+            st.caption(f"{len(results)} setup(s) found")
+            for res in results:
+                score = res["score"]
+                score_cls = "score-green" if score >= 80 else ("score-yellow" if score >= 60 else "score-red")
+                card_cls = "card card-green" if res.get("full_match") else (
+                    "card card-red" if res.get("direction") == "Bearish" else "card"
+                )
+                dir_tag = "tag-bull" if res.get("direction") == "Bullish" else "tag-bear"
+                full_badge = '<span class="tag tag-full">FULL</span>' if res.get("full_match") else ""
+                st.markdown(f"""
+                <div class="{card_cls}">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                      <span style="font-size:1.1rem;font-weight:800;">{res.get('symbol','')}</span>
+                      <span class="tag {dir_tag}">{res.get('direction','')}</span>
+                      {full_badge}
+                    </div>
+                    <span class="score {score_cls}">{score}</span>
+                  </div>
+                  <div style="margin-top:0.4rem;color:#9aabc8;font-size:0.9rem;line-height:1.5;">
+                    Near <b>{res.get('near_level','—')}</b> ({res.get('level_price','—')}) • {res.get('trend','')}<br>
+                    Price <b>{res.get('price','—')}</b><br>
+                    Break: <b>{res.get('break_time_ist','—')}</b> | Setup: <b>{res.get('setup_time_ist','—')}</b>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # Soft poll for countdown / due auto (does not reset timer when visiting Results)
 if st.session_state.get("view") == "scan" and st.session_state.get("auto_refresh"):
