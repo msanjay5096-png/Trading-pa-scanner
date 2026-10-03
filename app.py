@@ -496,4 +496,526 @@ st.markdown("""
 
     .card {
         background: linear-gradient(145deg, #121a2b, #0e1522);
-        bord
+        border-radius: 16px; padding: 1rem 1.05rem; margin-bottom: 0.8rem;
+        border: 1px solid #243044;
+    }
+    .card-green { border-color: #00e67655; background: linear-gradient(145deg, #102018, #0e1522); }
+    .card-red { border-color: #ff525255; background: linear-gradient(145deg, #201018, #0e1522); }
+
+    .score { font-size: 1.55rem; font-weight: 800; }
+    .score-green { color: #00e676; }
+    .score-yellow { color: #ffc107; }
+    .score-red { color: #ff6b6b; }
+
+    .tag {
+        display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px;
+        font-size: 0.8rem; font-weight: 700; margin-left: 0.3rem;
+    }
+    .tag-bull { background: #00e67622; color: #00e676; }
+    .tag-bear { background: #ff525222; color: #ff6b6b; }
+    .tag-full { background: #00e67633; color: #00e676; border: 1px solid #00e67655; }
+
+    /* Big primary-style buttons */
+    .stButton > button {
+        border-radius: 14px !important;
+        font-weight: 800 !important;
+        min-height: 3.15rem !important;
+        font-size: 1.05rem !important;
+        border: none !important;
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00c853, #00e676) !important;
+        color: #04140a !important;
+        box-shadow: 0 6px 18px rgba(0, 230, 118, 0.28) !important;
+        min-height: 3.6rem !important;
+        font-size: 1.15rem !important;
+    }
+
+    /* Market row buttons */
+    div[data-testid="column"] .stButton > button {
+        min-height: 3.2rem !important;
+        font-size: 1rem !important;
+        font-weight: 800 !important;
+    }
+
+    .stTextArea textarea, .stTextInput input {
+        border-radius: 12px !important;
+        font-size: 1rem !important;
+    }
+    .stSelectbox label, .stSlider label, .stToggle label {
+        font-size: 1rem !important;
+    }
+    .stProgress > div > div { background: linear-gradient(90deg, #00c853, #00e676); }
+
+    /* Center primary scan area */
+    .scan-wrap { text-align: center; margin: 0.4rem 0 0.2rem 0; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="hero">
+  <h1>PA Scanner</h1>
+  <p>Price Action • Intraday • Mobile</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------- data ----------
+watchlists = load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS)
+scanners = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
+settings = load_json(SETTINGS_FILE, DEFAULT_SETTINGS)
+history = load_json(HISTORY_FILE, [])
+
+if "market" not in st.session_state:
+    st.session_state["market"] = "Indian Stocks"
+if "view" not in st.session_state:
+    st.session_state["view"] = "scan"  # scan | results | history
+if "auto_refresh" not in st.session_state:
+    st.session_state["auto_refresh"] = False
+if "rules_edit" not in st.session_state:
+    st.session_state["rules_edit"] = False
+if "rules_backup" not in st.session_state:
+    st.session_state["rules_backup"] = None
+if "rules_forward" not in st.session_state:
+    st.session_state["rules_forward"] = None
+if "show_watchlist" not in st.session_state:
+    st.session_state["show_watchlist"] = False
+if "scan_results" not in st.session_state:
+    st.session_state["scan_results"] = []
+
+MARKET_ORDER = ["Indian Stocks", "Crypto", "Forex"]
+MARKET_LABEL = {"Indian Stocks": "🇮🇳 Stocks", "Crypto": "₿ Crypto", "Forex": "💱 Forex"}
+MARKET_COLOR = {
+    "Indian Stocks": "#1b5e20",
+    "Crypto": "#4a148c",
+    "Forex": "#0d47a1",
+}
+PLACEHOLDERS = {
+    "Indian Stocks": "RELIANCE, TCS, INFY, SBIN",
+    "Crypto": "BTC, ETH, SOL, XRP",
+    "Forex": "XAUUSD, EURUSD, GBPUSD",
+}
+
+scanner_name = list(scanners.keys())[0] if scanners else "My Price Action Scanner"
+if scanner_name not in scanners:
+    scanners[scanner_name] = DEFAULT_SCANNERS["My Price Action Scanner"]
+active_rules = scanners[scanner_name]["rules"]
+
+# ---------- Market selector (3 big buttons) ----------
+c1, c2, c3 = st.columns(3)
+for col, mkt in zip([c1, c2, c3], MARKET_ORDER):
+    with col:
+        is_active = st.session_state["market"] == mkt
+        label = MARKET_LABEL[mkt]
+        if st.button(
+            label,
+            key=f"mktbtn_{mkt}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            st.session_state["market"] = mkt
+            st.session_state["show_watchlist"] = False
+            st.session_state["view"] = "scan"
+            st.rerun()
+
+# Color accent line for selected market
+sel = st.session_state["market"]
+st.markdown(
+    f"<div style='height:4px;border-radius:4px;margin:0.35rem 0 0.8rem 0;background:{MARKET_COLOR[sel]};'></div>",
+    unsafe_allow_html=True,
+)
+
+market = st.session_state["market"]
+current_list = watchlists.get(market, [])
+
+# ---------- SCAN VIEW ----------
+if st.session_state["view"] == "scan":
+    st.markdown("<div class='panel'>", unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        timeframe = st.selectbox(
+            "Timeframe",
+            ["1m", "3m", "5m", "15m", "1h", "4h", "1d"],
+            index=2,
+            key=f"tf_{market}",
+        )
+    with c2:
+        min_score = st.slider("Min Score", 0, 100, 50, 5, key=f"score_{market}")
+
+    only_full = st.toggle("Full Matches Only", value=False, key=f"full_{market}")
+    auto_refresh = st.toggle("Auto Refresh", value=st.session_state["auto_refresh"], key="auto_ref_toggle")
+    st.session_state["auto_refresh"] = auto_refresh
+    if auto_refresh:
+        refresh_sec = st.select_slider("Every", options=[60, 120, 180, 300], value=120, format_func=lambda x: f"{x//60} min")
+    else:
+        refresh_sec = 120
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # SCAN button centered & big
+    st.markdown("<div class='scan-wrap'>", unsafe_allow_html=True)
+    run = st.button(f"🔥 SCAN NOW", type="primary", use_container_width=True, key="scan_main")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:0.55rem'></div>", unsafe_allow_html=True)
+    if st.button("📊 RESULTS", use_container_width=True, key="goto_results"):
+        st.session_state["view"] = "results"
+        st.rerun()
+
+    # Watchlist button (count only)
+    st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
+    wl_label = f"📋 Watchlist ({len(current_list)})"
+    if st.button(wl_label, use_container_width=True, key="wl_toggle"):
+        st.session_state["show_watchlist"] = not st.session_state["show_watchlist"]
+        st.rerun()
+
+    if st.session_state["show_watchlist"]:
+        st.markdown("<div class='panel'>", unsafe_allow_html=True)
+        st.markdown(f"<div class='panel-title'>Symbols in {MARKET_LABEL[market]}</div>", unsafe_allow_html=True)
+        if not current_list:
+            st.info("Empty watchlist")
+        else:
+            for i, sym in enumerate(list(current_list)):
+                a, b = st.columns([5, 1])
+                a.write(f"**{sym}**")
+                if b.button("🗑", key=f"del_{market}_{i}"):
+                    current_list.pop(i)
+                    watchlists[market] = current_list
+                    save_json(WATCHLIST_FILE, watchlists)
+                    st.rerun()
+            if st.button("Clear all", key=f"clear_{market}"):
+                watchlists[market] = []
+                save_json(WATCHLIST_FILE, watchlists)
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Add symbols below watchlist
+    st.markdown("<div class='panel'>", unsafe_allow_html=True)
+    st.markdown("<div class='panel-title'>+ Add symbols (many at once)</div>", unsafe_allow_html=True)
+    bulk = st.text_area(
+        "Symbols",
+        placeholder=PLACEHOLDERS[market],
+        height=90,
+        key=f"bulk_{market}",
+        label_visibility="collapsed",
+    )
+    st.caption("Separate by comma or new line")
+    if st.button(f"➕ Add to {MARKET_LABEL[market]}", use_container_width=True, key=f"add_{market}"):
+        if not bulk or not bulk.strip():
+            st.warning("Type symbols first")
+        else:
+            raw = bulk.replace("\n", ",").replace(" ", ",")
+            parts = [p.strip().upper() for p in raw.split(",") if p.strip()]
+            added = []
+            for p in parts:
+                fmt = get_symbol_suffix(p, market)
+                if fmt not in current_list:
+                    current_list.append(fmt)
+                    added.append(fmt)
+            watchlists[market] = current_list
+            save_json(WATCHLIST_FILE, watchlists)
+            if added:
+                st.success(f"Added {len(added)} symbols")
+            else:
+                st.info("All already in list")
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Scanner rules section (last)
+    st.markdown("<div class='panel'>", unsafe_allow_html=True)
+    st.markdown("<div class='panel-title'>🔍 Scanner rules</div>", unsafe_allow_html=True)
+    with st.expander("Tap to view / edit rules", expanded=False):
+        st.write(scanners[scanner_name].get("description", "Price action scanner"))
+        rules = active_rules
+        st.markdown(
+            f"""
+- Near S/R: **{'ON' if rules.get('require_near_sr') else 'OFF'}** ({rules.get('sr_pct', 1)}%)
+- Consolidation: **{'ON' if rules.get('require_consolidation') else 'OFF'}**
+- Volume dry: **{'ON' if rules.get('require_volume_dry') else 'OFF'}**
+- Rejection candle: **{'ON' if rules.get('require_pin_bar') else 'OFF'}**
+- High vol rejection: **{'ON' if rules.get('require_high_volume_rejection') else 'OFF'}**
+"""
+        )
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            if st.button("✏️ Edit", use_container_width=True, key="edit_rules"):
+                st.session_state["rules_backup"] = dict(active_rules)
+                st.session_state["rules_edit"] = True
+                st.rerun()
+        with e2:
+            if st.button("↩️ Revert", use_container_width=True, key="revert_rules"):
+                if st.session_state.get("rules_backup"):
+                    st.session_state["rules_forward"] = dict(scanners[scanner_name]["rules"])
+                    scanners[scanner_name]["rules"] = dict(st.session_state["rules_backup"])
+                    save_json(SCANNERS_FILE, scanners)
+                    st.success("Reverted")
+                    st.rerun()
+                else:
+                    st.info("Nothing to revert")
+        with e3:
+            if st.button("↪️ Forward", use_container_width=True, key="forward_rules"):
+                if st.session_state.get("rules_forward"):
+                    scanners[scanner_name]["rules"] = dict(st.session_state["rules_forward"])
+                    save_json(SCANNERS_FILE, scanners)
+                    st.session_state["rules_forward"] = None
+                    st.success("Forward applied")
+                    st.rerun()
+                else:
+                    st.info("Nothing to forward")
+
+        if st.session_state.get("rules_edit"):
+            st.markdown("---")
+            st.caption("Edit rules")
+            r = dict(active_rules)
+            r["require_near_sr"] = st.checkbox("Near Support/Resistance", value=r.get("require_near_sr", True))
+            r["sr_pct"] = st.slider("S/R distance %", 0.2, 2.0, float(r.get("sr_pct", 1.0)), 0.1)
+            r["require_consolidation"] = st.checkbox("Consolidation", value=r.get("require_consolidation", True))
+            r["require_volume_dry"] = st.checkbox("Volume drying", value=r.get("require_volume_dry", True))
+            r["require_pin_bar"] = st.checkbox("Rejection candle", value=r.get("require_pin_bar", True))
+            r["require_high_volume_rejection"] = st.checkbox(
+                "High volume on rejection", value=r.get("require_high_volume_rejection", True)
+            )
+            if st.button("💾 Save rules", type="primary", use_container_width=True):
+                scanners[scanner_name]["rules"] = r
+                save_json(SCANNERS_FILE, scanners)
+                st.session_state["rules_edit"] = False
+                st.success("Rules saved")
+                st.rerun()
+            if st.button("Cancel edit", use_container_width=True):
+                st.session_state["rules_edit"] = False
+                st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # History shortcut
+    if st.button("🕒 Scan history", use_container_width=True, key="goto_hist"):
+        st.session_state["view"] = "history"
+        st.rerun()
+
+    # Telegram quick
+    with st.expander("📱 Telegram alerts"):
+        enable_tg = st.toggle("Enable", value=settings.get("enable_telegram", False))
+        tg_token = st.text_input("Bot Token", value=settings.get("telegram_token", ""), type="password")
+        tg_chat = st.text_input("Chat ID", value=settings.get("telegram_chat_id", ""))
+        if st.button("Save Telegram", use_container_width=True):
+            settings["enable_telegram"] = enable_tg
+            settings["telegram_token"] = tg_token
+            settings["telegram_chat_id"] = tg_chat
+            save_json(SETTINGS_FILE, settings)
+            st.success("Saved")
+
+    # ---- run scan ----
+    should = run or auto_refresh
+    if should:
+        if not current_list:
+            st.error("Watchlist empty. Add symbols first.")
+        else:
+            progress = st.progress(0)
+            status = st.empty()
+            results = []
+            for i, sym in enumerate(current_list):
+                status.caption(f"Scanning {sym} ({i+1}/{len(current_list)})")
+                res = scan_symbol(sym, interval=timeframe, rules=active_rules)
+                if res:
+                    if only_full and not res.get("full_match"):
+                        pass
+                    elif res["score"] >= min_score:
+                        results.append(res)
+                progress.progress((i + 1) / max(len(current_list), 1))
+                time.sleep(0.08)
+            status.empty()
+            progress.empty()
+
+            results = sorted(results, key=lambda x: x["score"], reverse=True)
+            # drop heavy df for session storage safety in history
+            light = []
+            for r in results:
+                item = {k: v for k, v in r.items() if k != "df"}
+                light.append(item)
+
+            st.session_state["scan_results"] = results
+            st.session_state["last_scan"] = datetime.now().strftime("%H:%M")
+            st.session_state["last_market"] = market
+            st.session_state["last_tf"] = timeframe
+
+            # clean history entry
+            hist_entry = {
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "market": market,
+                "timeframe": timeframe,
+                "count": len(light),
+                "symbols": [x["symbol"] for x in light[:15]],
+                "top_score": light[0]["score"] if light else 0,
+            }
+            history = [hist_entry] + history
+            history = history[:30]  # keep last 30
+            save_json(HISTORY_FILE, history)
+
+            if settings.get("enable_telegram") and settings.get("telegram_token"):
+                for r in [x for x in results if x["score"] >= 85 or x.get("full_match")][:4]:
+                    msg = (
+                        f"🚨 <b>{r['symbol']}</b> | Score {r['score']}\n"
+                        f"{r['direction']} | Near {r.get('near_level','')}\n"
+                        f"Price {r['price']} | {timeframe}"
+                    )
+                    send_telegram_alert(
+                        settings["telegram_token"],
+                        settings.get("telegram_chat_id", ""),
+                        msg,
+                    )
+
+            if results:
+                st.success(f"Found {len(results)} setup(s)")
+                st.session_state["view"] = "results"
+                time.sleep(0.4)
+                st.rerun()
+            else:
+                st.warning("No setups found. Try lower score or other TF.")
+
+            if auto_refresh:
+                with st.spinner(f"Next auto scan in {refresh_sec//60} min..."):
+                    time.sleep(refresh_sec)
+                st.rerun()
+
+# ---------- RESULTS VIEW ----------
+elif st.session_state["view"] == "results":
+    st.markdown("<div class='panel'>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='panel-title'>Results • {st.session_state.get('last_market','')} • "
+        f"{st.session_state.get('last_tf','')} • {st.session_state.get('last_scan','—')}</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("← Back to Scan", use_container_width=True):
+        st.session_state["view"] = "scan"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    results = st.session_state.get("scan_results", [])
+    if not results:
+        st.info("No results yet. Run a scan first.")
+    else:
+        st.caption(f"{len(results)} setups")
+        for res in results:
+            score = res["score"]
+            score_cls = "score-green" if score >= 80 else ("score-yellow" if score >= 60 else "score-red")
+            card_cls = "card card-green" if res.get("full_match") else (
+                "card card-red" if res.get("direction") == "Bearish" else "card"
+            )
+            dir_tag = "tag-bull" if res["direction"] == "Bullish" else "tag-bear"
+            full_badge = '<span class="tag tag-full">FULL</span>' if res.get("full_match") else ""
+
+            st.markdown(f"""
+            <div class="{card_cls}">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <span style="font-size:1.2rem;font-weight:800;">{res['symbol']}</span>
+                  <span class="tag {dir_tag}">{res['direction']}</span>
+                  {full_badge}
+                </div>
+                <span class="score {score_cls}">{score}</span>
+              </div>
+              <div style="margin-top:0.45rem;color:#9aabc8;font-size:0.95rem;line-height:1.55;">
+                Near <b>{res.get('near_level','—')}</b> ({res.get('level_price','—')}) • {res.get('trend','')}<br>
+                Price <b>{res['price']}</b> • TF {res.get('interval','')}<br>
+                Break: <b>{res.get('break_time_ist','—')}</b><br>
+                Setup: <b>{res.get('setup_time_ist','—')}</b><br>
+                Scanned: {res.get('scanned_at_ist','—')}
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            with st.expander(f"Chart • {res['symbol']}"):
+                df = res.get("df")
+                if df is not None and len(df) > 0:
+                    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                        vertical_spacing=0.03, row_heights=[0.75, 0.25])
+                    fig.add_trace(go.Candlestick(
+                        x=df.index, open=df["Open"], high=df["High"],
+                        low=df["Low"], close=df["Close"], name="Price"
+                    ), row=1, col=1)
+
+                    # Support / Resistance horizontal line
+                    if res.get("level_price"):
+                        lvl_color = "#00e676" if res.get("near_level") == "Support" else "#ff5252"
+                        fig.add_hline(
+                            y=res["level_price"],
+                            line_dash="dash",
+                            line_color=lvl_color,
+                            line_width=2,
+                            annotation_text=res.get("near_level", "Level"),
+                            annotation_position="top left",
+                            row=1, col=1,
+                        )
+
+                    # Trendline from swing points (HL / LH)
+                    tpts = res.get("trend_points") or []
+                    if len(tpts) >= 2:
+                        try:
+                            xs, ys = [], []
+                            idx_map = {str(i): i for i in df.index}
+                            for x_str, y in tpts:
+                                # match by string or nearest
+                                matched = None
+                                for i in df.index:
+                                    if str(i) == x_str or str(i)[:16] == str(x_str)[:16]:
+                                        matched = i
+                                        break
+                                if matched is not None:
+                                    xs.append(matched)
+                                    ys.append(y)
+                            if len(xs) >= 2:
+                                tcolor = "#00e676" if res.get("direction") == "Bullish" else "#ff5252"
+                                fig.add_trace(go.Scatter(
+                                    x=xs, y=ys, mode="lines+markers",
+                                    line=dict(color=tcolor, width=2, dash="solid"),
+                                    marker=dict(size=7, color=tcolor),
+                                    name="Trendline",
+                                ), row=1, col=1)
+                        except Exception:
+                            pass
+
+                    fig.add_trace(go.Bar(x=df.index, y=df["Volume"], marker_color="#2a3a55", name="Vol"), row=2, col=1)
+                    fig.update_layout(
+                        height=360, template="plotly_dark",
+                        xaxis_rangeslider_visible=False,
+                        margin=dict(l=0, r=0, t=8, b=0),
+                        showlegend=False,
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                    )
+                    fig.update_xaxes(showgrid=False)
+                    fig.update_yaxes(showgrid=False)
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.caption(
+                        f"Break: {res.get('break_time_ist','—')}  |  "
+                        f"Setup: {res.get('setup_time_ist','—')}  |  IST (+05:30)"
+                    )
+
+# ---------- HISTORY VIEW ----------
+elif st.session_state["view"] == "history":
+    st.markdown("<div class='panel'>", unsafe_allow_html=True)
+    st.markdown("<div class='panel-title'>Scan history</div>", unsafe_allow_html=True)
+    if st.button("← Back to Scan", use_container_width=True, key="hist_back"):
+        st.session_state["view"] = "scan"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if not history:
+        st.info("No history yet.")
+    else:
+        for h in history:
+            syms = ", ".join(h.get("symbols", [])[:8])
+            if len(h.get("symbols", [])) > 8:
+                syms += "…"
+            st.markdown(f"""
+            <div class="card">
+              <div style="font-weight:800;font-size:1.05rem;">{h.get('time','')}</div>
+              <div style="color:#9aabc8;margin-top:0.25rem;">
+                {h.get('market','')} • {h.get('timeframe','')} • <b>{h.get('count',0)}</b> setups
+                {f'• top {h.get("top_score")}' if h.get('top_score') else ''}
+              </div>
+              <div style="margin-top:0.35rem;font-size:0.92rem;">{syms or '—'}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        if st.button("Clear history", use_container_width=True):
+            save_json(HISTORY_FILE, [])
+            st.rerun()
+
+st.caption("PA Scanner • Mobile first • Chart-matched price action")
