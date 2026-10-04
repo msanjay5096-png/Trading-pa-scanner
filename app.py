@@ -456,6 +456,351 @@ def scan_symbol(symbol, interval="5m", rules=None):
 
 
 
+
+
+# ====================== SCANNER 2 : HEAD & SHOULDERS / INVERSE H&S ======================
+# Independent from Scanner 1 (scan_symbol is untouched).
+# The inverse pattern is the exact mirror of the normal one: the price series is flipped
+# (O,H,L,C -> -O,-L,-H,-C), the same top-pattern detector runs, and results are flipped back.
+HNS_FILE = os.path.join(DATA_DIR, "hns_rules.json")
+
+DEFAULT_HNS_RULES = {
+    # which patterns
+    "scan_bearish_hs": True,          # Head & Shoulders  (bearish, break BELOW neckline)
+    "scan_inverse_hs": True,          # Inverse H&S       (bullish, break ABOVE neckline)
+    # prior trend into the left shoulder
+    "require_prior_trend": True,
+    "min_trend_pct": 3.0,             # move into left shoulder >= 3% ...
+    "trend_atr_mult": 3.0,            # ... or 3x ATR (whichever is smaller)
+    "trend_lookback": 40,             # candles looked back from the left shoulder
+    # shape
+    "swing_strength": 3,              # candles each side to confirm a peak
+    "min_head_prominence_pct": 1.0,   # head above both shoulders by >= 1% ...
+    "head_atr_mult": 1.0,             # ... or 1x ATR (whichever is smaller)
+    "max_shoulder_diff_pct": 15.0,    # shoulder heights (above neckline) within +-15%
+    "max_time_asym_pct": 40.0,        # left/right time spans within +-40%
+    "max_neckline_slope_deg": 5.0,    # neckline tilt (normalised to head height)
+    # size
+    "min_pattern_candles": 20,
+    "max_pattern_candles": 80,
+    "min_gap_candles": 5,             # min candles between LS-Head and Head-RS
+    # breakout
+    "min_break_pct": 0.25,            # close beyond neckline by >= 0.25%
+    "require_healthy_break": True,    # strong body (>=45% of range) closing near its extreme
+    "max_break_delay": 10,            # breakout within 10 candles of the right shoulder
+    "invalid_if_above_rs": True,      # invalid if price closes beyond the right shoulder first
+    "max_signal_age": 3,              # only show signals from the last N candles
+    # optional
+    "require_volume": False,
+    "require_retest": False,
+    "require_min_rr": False,
+    "min_rr": 1.5,
+}
+
+
+def _hns_fetch(symbol, interval):
+    """Download enough history for pattern work (3m / 4h are built by resampling)."""
+    try:
+        spec = {
+            "1m": ("5d", "1m", None),
+            "3m": ("5d", "1m", "3min"),
+            "5m": ("30d", "5m", None),
+            "15m": ("60d", "15m", None),
+            "30m": ("60d", "30m", None),
+            "1h": ("180d", "1h", None),
+            "4h": ("365d", "1h", "4h"),
+            "1d": ("2y", "1d", None),
+        }
+        period, yf_int, rs = spec.get(interval, ("60d", interval, None))
+        df = yf.Ticker(symbol).history(period=period, interval=yf_int)
+        if df is None or len(df) == 0:
+            return None
+        df = df.dropna(subset=["Open", "High", "Low", "Close"])
+        if rs:
+            df = df.resample(rs).agg(
+                {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
+            ).dropna(subset=["Open", "High", "Low", "Close"])
+        return df
+    except Exception:
+        return None
+
+
+def _hns_swings(H, k):
+    """Indices of swing highs. Right side may be shorter than k for the newest candles
+    (so a fresh right shoulder can be used right away)."""
+    n = len(H)
+    out = []
+    for i in range(k, n - 1):
+        r = min(k, n - 1 - i)
+        win = H[i - k:i + r + 1]
+        if H[i] == win.max() and int(np.argmax(win)) == k:
+            out.append(i)
+    return out
+
+
+def _hns_detect(O, H, L, C, V, r):
+    """Find the best *top-type* head & shoulders (head = highest peak, break DOWN).
+    Returns a dict (values in this orientation) or None."""
+    n = len(C)
+    k = max(1, int(r["swing_strength"]))
+    prev_c = np.roll(C, 1)
+    prev_c[0] = C[0]
+    tr = np.maximum(H - L, np.maximum(np.abs(H - prev_c), np.abs(L - prev_c)))
+    atr = np.nan_to_num(pd.Series(tr).rolling(14, min_periods=5).mean().values, nan=0.0)
+
+    sh = _hns_swings(H, k)
+    if len(sh) < 3:
+        return None
+
+    min_w = int(r["min_pattern_candles"])
+    max_w = int(r["max_pattern_candles"])
+    gap = int(r["min_gap_candles"])
+    delay = int(r["max_break_delay"])
+    age = int(r["max_signal_age"])
+    rs_min = n - 1 - age - delay - (15 if r.get("require_retest") else 0)
+
+    max_sh = max(float(r["max_shoulder_diff_pct"]), 0.01)
+    max_t = max(float(r["max_time_asym_pct"]), 0.01)
+    max_ang = max(float(r["max_neckline_slope_deg"]), 0.01)
+    min_brk = max(float(r["min_break_pct"]), 0.001)
+
+    best = None
+    for rs in sh:
+        if rs < rs_min:
+            continue
+        for h in sh:
+            if h > rs - gap:
+                break
+            for ls in sh:
+                if ls > h - gap:
+                    break
+                if not (min_w <= rs - ls <= max_w):
+                    continue
+                Pls, Ph, Prs = H[ls], H[h], H[rs]
+                if H[ls:rs + 1].max() > Ph:            # head must be the highest point
+                    continue
+
+                # troughs + neckline (through the two troughs)
+                t1 = ls + int(np.argmin(L[ls:h + 1]))
+                t2 = h + int(np.argmin(L[h:rs + 1]))
+                if t2 <= t1:
+                    continue
+                n1, n2 = float(L[t1]), float(L[t2])
+
+                def neck(x, n1=n1, n2=n2, t1=t1, t2=t2):
+                    return n1 + (n2 - n1) * (x - t1) / (t2 - t1)
+
+                hh = Ph - neck(h)
+                hl = Pls - neck(ls)
+                hr = Prs - neck(rs)
+                if hh <= 0 or hl <= 0 or hr <= 0:
+                    continue
+
+                # 3. head clearly above both shoulders
+                a = atr[rs]
+                need = r["min_head_prominence_pct"] / 100.0 * abs(Ph)
+                if a > 0 and r["head_atr_mult"] > 0:
+                    need = min(need, r["head_atr_mult"] * a)
+                if Ph - max(Pls, Prs) < need:
+                    continue
+
+                # 4. symmetry
+                sh_diff = abs(hl - hr) / max(hl, hr) * 100
+                if sh_diff > max_sh:
+                    continue
+                lt, rt = h - ls, rs - h
+                t_diff = abs(lt - rt) / max(lt, rt) * 100
+                if t_diff > max_t:
+                    continue
+
+                # 5. neckline slope (tilt relative to head height, 1 unit horizontal)
+                angle = float(np.degrees(np.arctan(abs(n2 - n1) / hh)))
+                if angle > max_ang:
+                    continue
+
+                # 1. prior trend into the left shoulder
+                lb = max(0, ls - int(r["trend_lookback"]))
+                move = float(Pls - L[lb:ls + 1].min())
+                t_need = r["min_trend_pct"] / 100.0 * abs(Pls)
+                if atr[ls] > 0 and r["trend_atr_mult"] > 0:
+                    t_need = min(t_need, r["trend_atr_mult"] * atr[ls])
+                trend_ok = move >= t_need
+                if r["require_prior_trend"] and not trend_ok:
+                    continue
+
+                # 7/8/9. breakout candle
+                b = None
+                for j in range(rs + 1, min(n, rs + delay + 1)):
+                    if r["invalid_if_above_rs"] and C[j] > Prs:
+                        break
+                    nk = neck(j)
+                    if C[j] < nk - abs(nk) * min_brk / 100.0:
+                        if r["require_healthy_break"]:
+                            candle = {"Open": O[j], "High": H[j], "Low": L[j], "Close": C[j]}
+                            if not is_healthy_break_candle(candle, "down"):
+                                continue
+                        b = j
+                        break
+                if b is None:
+                    continue
+                if r["invalid_if_above_rs"] and np.any(C[b + 1:] > Prs):   # pattern failed after break
+                    continue
+
+                # optional retest: price returns to the neckline from below and is rejected
+                sig, retest = b, False
+                for j in range(b + 2, n):
+                    nk = neck(j)
+                    if H[j] >= nk - abs(nk) * 0.001 and C[j] < nk:
+                        retest, sig = True, j
+                        break
+                if r["require_retest"] and not retest:
+                    continue
+                if (n - 1) - sig > age:                      # not fresh any more
+                    continue
+
+                # reward : risk  (stop beyond right shoulder, target = measured move)
+                entry = float(C[sig])
+                stop = float(Prs)
+                target = float(neck(sig) - hh)
+                risk, reward = stop - entry, entry - target
+                if risk <= 0:
+                    continue
+                rr = reward / risk if reward > 0 else 0.0
+                if r["require_min_rr"] and rr < float(r["min_rr"]):
+                    continue
+
+                # optional volume confirmation
+                has_vol = V is not None and float(np.nansum(V[ls:sig + 1])) > 0
+                cond_a = cond_b = None
+                vol_ok = None
+                if has_vol:
+                    def pv(i):
+                        return float(np.nanmean(V[max(0, i - 1):i + 2]))
+                    cond_a = max(pv(ls), pv(h)) > pv(rs)                   # fades into right shoulder
+                    pre = V[max(0, b - 10):b]
+                    cond_b = bool(len(pre) and V[b] > np.nanmean(pre))      # breakout on higher volume
+                    vol_ok = bool(cond_a and cond_b)
+                    if r["require_volume"] and not vol_ok:
+                        continue
+
+                # score (100): symmetry 25, breakout 25, volume 20, prior trend 15, neckline 15
+                sym = 15 * max(0.0, 1 - sh_diff / max_sh) + 10 * max(0.0, 1 - t_diff / max_t)
+                nkb = neck(b)
+                bdist = (nkb - C[b]) / abs(nkb) * 100
+                rng = H[b] - L[b]
+                body_ratio = abs(C[b] - O[b]) / rng if rng > 0 else 0.0
+                brk = 15 * min(1.0, bdist / (3 * min_brk)) + 10 * min(1.0, max(0.0, (body_ratio - 0.45) / 0.4))
+                if has_vol:
+                    volp = (8 if cond_a else 0) + (12 if cond_b else 0)
+                else:
+                    volp = 10   # no volume data (e.g. forex) -> neutral
+                trp = 15 * min(1.0, move / (2 * t_need)) if t_need > 0 else 7.5
+                flat = 15 * max(0.0, 1 - angle / max_ang)
+                score = int(round(min(100.0, sym + brk + volp + trp + flat)))
+
+                cand = {
+                    "score": score, "ls": ls, "h": h, "rs": rs, "t1": t1, "t2": t2, "b": b, "sig": sig,
+                    "n1": n1, "n2": n2, "neck_sig": float(neck(sig)), "neck_b": float(nkb),
+                    "Pls": float(Pls), "Ph": float(Ph), "Prs": float(Prs),
+                    "entry": entry, "stop": stop, "target": target, "rr": rr,
+                    "retest": retest, "vol_ok": vol_ok, "trend_ok": trend_ok,
+                    "sh_diff": sh_diff, "t_diff": t_diff, "angle": angle,
+                    "parts": {"symmetry": round(sym), "breakout": round(brk), "volume": round(volp),
+                              "prior_trend": round(trp), "neckline": round(flat)},
+                }
+                if best is None or (cand["score"], cand["sig"]) > (best["score"], best["sig"]):
+                    best = cand
+    return best
+
+
+def scan_hns(symbol, interval="15m", rules=None):
+    """Scanner 2 - Head & Shoulders (bearish) and Inverse Head & Shoulders (bullish)."""
+    try:
+        r = dict(DEFAULT_HNS_RULES)
+        if rules:
+            r.update(rules)
+        df = _hns_fetch(symbol, interval)
+        if df is None or len(df) < 60:
+            return None
+        win = (int(r["max_pattern_candles"]) + int(r["max_break_delay"]) + int(r["trend_lookback"])
+               + int(r["max_signal_age"]) + 40)
+        df = df.tail(max(win, 120))
+
+        O = df["Open"].values.astype(float)
+        H = df["High"].values.astype(float)
+        L = df["Low"].values.astype(float)
+        C = df["Close"].values.astype(float)
+        V = df["Volume"].values.astype(float) if "Volume" in df.columns else None
+
+        found = []
+        if r["scan_bearish_hs"]:
+            p = _hns_detect(O, H, L, C, V, r)
+            if p:
+                p["sign"] = 1
+                found.append(p)
+        if r["scan_inverse_hs"]:
+            p = _hns_detect(-O, -L, -H, -C, V, r)      # mirror image
+            if p:
+                p["sign"] = -1
+                found.append(p)
+        if not found:
+            return None
+        p = max(found, key=lambda x: (x["score"], x["sig"]))
+
+        sg = p["sign"]
+        def pr(v):
+            return round(float(sg * v), 5)
+
+        idx = df.index
+        name = "Head & Shoulders" if sg == 1 else "Inverse H&S"
+        direction = "Bearish" if sg == 1 else "Bullish"
+        full = bool(p["vol_ok"] is True or (p["vol_ok"] is None and p["score"] >= 80))   # FULL = volume confirmed
+        start = max(0, p["ls"] - 15)
+
+        return {
+            "symbol": symbol,
+            "score": int(p["score"]),
+            "full_match": full,
+            "trend": name,
+            "pattern": name,
+            "direction": direction,
+            "price": pr(p["entry"]),
+            "interval": interval,
+            "near_level": "Neckline",
+            "level_price": pr(p["neck_b"]),
+            "break_level": pr(p["neck_b"]),
+            "target": pr(p["target"]),
+            "stop": pr(p["stop"]),
+            "rr": round(float(p["rr"]), 2),
+            "break_time_ist": to_ist_str(idx[p["b"]]),
+            "setup_time_ist": to_ist_str(idx[p["sig"]]),
+            "scanned_at_ist": datetime.now(IST).strftime("%d-%b-%Y %H:%M IST"),
+            "scores": p["parts"],
+            "details": {
+                "prior_trend_ok": bool(p["trend_ok"]),
+                "volume_ok": p["vol_ok"],
+                "retest": bool(p["retest"]),
+                "shoulder_diff_pct": round(p["sh_diff"], 1),
+                "time_diff_pct": round(p["t_diff"], 1),
+                "neckline_angle": round(p["angle"], 1),
+            },
+            # neckline drawn from the first trough to the signal candle
+            "trend_points": [
+                [str(idx[p["t1"]]), pr(p["n1"])],
+                [str(idx[p["sig"]]), pr(p["neck_sig"])],
+            ],
+            "pattern_points": [
+                ["LS", str(idx[p["ls"]]), pr(p["Pls"])],
+                ["H", str(idx[p["h"]]), pr(p["Ph"])],
+                ["RS", str(idx[p["rs"]]), pr(p["Prs"])],
+            ],
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "df": df.iloc[start:],
+        }
+    except Exception:
+        return None
+
+
 # ====================== STREAMLIT APP ======================
 # NOTE: everything ABOVE this line (scanner logic, rules, helpers) is unchanged.
 # Only the look / layout below was redesigned.  Recommended: streamlit>=1.39
@@ -470,6 +815,8 @@ if "theme" not in st.session_state:
     st.session_state["theme"] = "dark"
 if "page" not in st.session_state:
     st.session_state["page"] = "dashboard"   # dashboard | rules | results | alerts | history
+if "scanner" not in st.session_state:
+    st.session_state["scanner"] = 1          # 1 = Price Action, 2 = Head & Shoulders
 
 is_dark = st.session_state["theme"] == "dark"
 
@@ -490,6 +837,10 @@ def kc(key):
 
 def go_page(p):
     st.session_state["page"] = p
+
+
+def set_scanner(n):
+    st.session_state["scanner"] = n
 
 
 def set_market(m):
@@ -608,6 +959,24 @@ html, body { font-size: 15.5px !important; }
 .st-key-mk_stocks button { border-color: rgba(0,230,118,0.6) !important; color: #69f0ae !important; }
 .st-key-mk_crypto button { border-color: rgba(224,64,251,0.6) !important; color: #ea80fc !important; }
 .st-key-mk_forex  button { border-color: rgba(0,176,255,0.6) !important; color: #80d8ff !important; }
+
+/* ---------- scanner picker (Scanner 1 / Scanner 2) ---------- */
+.st-key-scanner_wrap [data-testid="stHorizontalBlock"] {
+  flex-wrap: nowrap !important; gap: 0.55rem !important; width: 100% !important;
+}
+.st-key-scanner_wrap [data-testid="stColumn"], .st-key-scanner_wrap [data-testid="column"] { min-width: 0 !important; }
+.st-key-scanner_wrap.st-key-scanner_wrap button {
+  min-height: 4rem !important; border-radius: 22px !important; padding: 0.2rem 0.3rem !important;
+  background: rgba(18,14,40,0.85) !important; border: 2px solid rgba(255,255,255,0.18) !important;
+  transition: all 0.25s ease;
+  opacity: 0.42; filter: blur(1.1px) saturate(0.55); transform: scale(0.97);
+}
+.st-key-scanner_wrap.st-key-scanner_wrap button p {
+  font-size: 1.05rem !important; font-weight: 800 !important; line-height: 1.3 !important;
+  margin: 0 !important; white-space: nowrap; text-align: center;
+}
+.st-key-sc_1.st-key-sc_1 button { border-color: rgba(0,229,255,0.65) !important; color: #80deea !important; }
+.st-key-sc_2.st-key-sc_2 button { border-color: rgba(255,179,0,0.70) !important; color: #ffd54f !important; }
 
 /* ---------- timeframe / auto refresh labels ---------- */
 .lbl-tf {
@@ -840,6 +1209,28 @@ def fmt_price(p):
     return f"{p:,.4f}" if p < 10 else f"{p:,.2f}"
 
 
+SCANNER_BTNS = [
+    (1, "Scanner 1  \nPrice Action", "sc_1", "rgba(0,60,70,0.7)", "#00e5ff", "rgba(0,229,255,0.5)"),
+    (2, "Scanner 2  \nHead & Shoulders", "sc_2", "rgba(80,50,0,0.7)", "#ffb300", "rgba(255,179,0,0.5)"),
+]
+
+
+def scanner_picker():
+    """Two big buttons (same style as Stocks/Crypto/Forex). Returns the CSS that highlights the active one."""
+    cur = st.session_state.get("scanner", 1)
+    with kc("scanner_wrap"):
+        cols = st.columns(2)
+        for col, (sid, label, key, _bg, _bd, _gl) in zip(cols, SCANNER_BTNS):
+            with col:
+                st.button(label, key=key, use_container_width=True, on_click=set_scanner, args=(sid,))
+    _, _, key, bg, bd, gl = [b for b in SCANNER_BTNS if b[0] == cur][0]
+    return (
+        f".st-key-{key}.st-key-{key} button {{ opacity: 1 !important; filter: none !important; "
+        f"transform: scale(1.03) !important; background: {bg} !important; border-color: {bd} !important; "
+        f"box-shadow: 0 0 22px {gl}, inset 0 0 12px {gl} !important; }}"
+    )
+
+
 def progress_html(frac):
     pct = int(max(0.0, min(1.0, float(frac))) * 100)
     return (f'<div class="pbar-wrap"><div class="pbar"><div class="pfill" style="width:{pct}%">'
@@ -873,6 +1264,9 @@ def result_card_html(res, detailed=True):
             f"Price <b>{res.get('price','—')}</b><br>"
             f"Break: <b>{res.get('break_time_ist','—')}</b> | Setup: <b>{res.get('setup_time_ist','—')}</b>"
         )
+    if res.get("pattern"):
+        body += (f"<br>Target <b>{res.get('target','—')}</b> • Stop <b>{res.get('stop','—')}</b> "
+                 f"• R:R <b>{res.get('rr','—')}</b>")
     return (
         f'<div class="{card_cls}">'
         f'<div style="display:flex;justify-content:space-between;align-items:center;">'
@@ -895,7 +1289,7 @@ def render_chart(res):
         ), row=1, col=1)
 
         # Support / Resistance horizontal line
-        if res.get("level_price"):
+        if res.get("level_price") and not res.get("pattern"):
             lvl_color = "#00e676" if res.get("near_level") == "Support" else "#ff5252"
             fig.add_hline(
                 y=res["level_price"],
@@ -922,13 +1316,37 @@ def render_chart(res):
                         xs.append(matched)
                         ys.append(y)
                 if len(xs) >= 2:
-                    tcolor = "#00e676" if res.get("direction") == "Bullish" else "#ff5252"
+                    tcolor = "#ffb300" if res.get("pattern") else ("#00e676" if res.get("direction") == "Bullish" else "#ff5252")
                     fig.add_trace(go.Scatter(
                         x=xs, y=ys, mode="lines+markers",
                         line=dict(color=tcolor, width=2, dash="solid"),
                         marker=dict(size=7, color=tcolor),
                         name="Trendline",
                     ), row=1, col=1)
+            except Exception:
+                pass
+
+        # Scanner 2: label Left shoulder / Head / Right shoulder and draw target + stop
+        if res.get("pattern"):
+            try:
+                pp = res.get("pattern_points") or []
+                px, py, pt = [], [], []
+                for lab, x_str, y in pp:
+                    for i in df.index:
+                        if str(i) == x_str or str(i)[:16] == str(x_str)[:16]:
+                            px.append(i); py.append(y); pt.append(lab)
+                            break
+                if px:
+                    fig.add_trace(go.Scatter(
+                        x=px, y=py, mode="markers+text", text=pt, textposition="top center",
+                        marker=dict(size=9, color="#ffb300"), textfont=dict(color="#ffd54f", size=12),
+                        name="Pattern"), row=1, col=1)
+                if res.get("target") is not None:
+                    fig.add_hline(y=res["target"], line_dash="dot", line_color="#00e676", line_width=1.5,
+                                  annotation_text="Target", annotation_position="bottom left", row=1, col=1)
+                if res.get("stop") is not None:
+                    fig.add_hline(y=res["stop"], line_dash="dot", line_color="#ff5252", line_width=1.5,
+                                  annotation_text="Stop", annotation_position="top left", row=1, col=1)
             except Exception:
                 pass
 
@@ -950,11 +1368,62 @@ def render_chart(res):
         )
 
 
+# ---- Scanner 2 rule editor definition: (key, kind, label, min, max, step, help)
+HNS_FIELDS = [
+    ("Patterns to scan", [
+        ("scan_bearish_hs", "bool", "Head & Shoulders (bearish)", 0, 0, 0, "Break BELOW the neckline."),
+        ("scan_inverse_hs", "bool", "Inverse Head & Shoulders (bullish)", 0, 0, 0, "Break ABOVE the neckline."),
+    ]),
+    ("Prior trend", [
+        ("require_prior_trend", "bool", "Require a trend into the left shoulder", 0, 0, 0, None),
+        ("min_trend_pct", "float", "Min move into left shoulder (%)", 0.1, 20, 0.5, "Uses the smaller of this % and the ATR multiple below."),
+        ("trend_atr_mult", "float", "…or ATR multiple", 0, 10, 0.5, "0 = use % only."),
+        ("trend_lookback", "int", "Trend lookback (candles)", 10, 150, 5, None),
+    ]),
+    ("Pattern shape", [
+        ("swing_strength", "int", "Peak sensitivity (candles each side)", 2, 8, 1, "Higher = only bigger, cleaner peaks."),
+        ("min_head_prominence_pct", "float", "Head above shoulders (%)", 0.1, 10, 0.1, "Smaller of this % and the ATR multiple below."),
+        ("head_atr_mult", "float", "…or ATR multiple", 0, 5, 0.25, "0 = use % only."),
+        ("max_shoulder_diff_pct", "float", "Max shoulder height difference (%)", 5, 60, 1, "Measured from the neckline."),
+        ("max_time_asym_pct", "float", "Max left/right time difference (%)", 10, 90, 5, None),
+        ("max_neckline_slope_deg", "float", "Max neckline slope (°)", 0.5, 30, 0.5, "Relative to head height. Raise to allow tilted necklines."),
+    ]),
+    ("Pattern size (candles)", [
+        ("min_pattern_candles", "int", "Min, left shoulder → right shoulder", 8, 100, 1, None),
+        ("max_pattern_candles", "int", "Max, left shoulder → right shoulder", 20, 300, 5, None),
+        ("min_gap_candles", "int", "Min candles between peaks", 2, 20, 1, None),
+    ]),
+    ("Breakout", [
+        ("min_break_pct", "float", "Close beyond neckline by (%)", 0.05, 3, 0.05, None),
+        ("require_healthy_break", "bool", "Strong breakout candle (body ≥ 45%)", 0, 0, 0, None),
+        ("max_break_delay", "int", "Breakout within N candles of right shoulder", 1, 40, 1, None),
+        ("invalid_if_above_rs", "bool", "Invalid if price passes the right shoulder first", 0, 0, 0, None),
+        ("max_signal_age", "int", "Only show signals from the last N candles", 0, 30, 1, "Keeps results fresh."),
+    ]),
+    ("Optional filters", [
+        ("require_volume", "bool", "Require volume confirmation", 0, 0, 0, "High at left shoulder/head, lower at right shoulder, higher on breakout. Skipped when a market has no volume data."),
+        ("require_retest", "bool", "Require a neckline retest", 0, 0, 0, "Signal is then the retest candle."),
+        ("require_min_rr", "bool", "Require minimum reward : risk", 0, 0, 0, "Target = neckline − head height. Stop = right shoulder."),
+        ("min_rr", "float", "Minimum reward : risk", 0.5, 10, 0.1, None),
+    ]),
+]
+
+
+def reset_hns_rules():
+    save_json(HNS_FILE, dict(DEFAULT_HNS_RULES))
+    for k in [k for k in st.session_state.keys() if str(k).startswith("hns_")]:
+        del st.session_state[k]
+
+
 # ====================== DATA ======================
 watchlists = load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS)
 scanners = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
 settings = load_json(SETTINGS_FILE, DEFAULT_SETTINGS)
 history = load_json(HISTORY_FILE, [])
+hns_rules = dict(DEFAULT_HNS_RULES)
+hns_rules.update(load_json(HNS_FILE, {}))
+scanner_id = st.session_state.get("scanner", 1)
+SCANNER_NAMES = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders"}
 
 if "market" not in st.session_state:
     st.session_state["market"] = "Indian Stocks"
@@ -1039,6 +1508,7 @@ if page == "dashboard":
         f"background: {_sel[1]} !important; border-color: {_sel[2]} !important; "
         f"box-shadow: 0 0 24px {_sel[3]}, inset 0 0 14px {_sel[3]} !important; }}"
     )
+    dyn_css += scanner_picker()      # Scanner 1 / Scanner 2 (just below Stocks / Crypto / Forex)
     current_list = watchlists.get(market, [])
 
     # ---------- Scan panel ----------
@@ -1060,6 +1530,9 @@ if page == "dashboard":
                     label_visibility="collapsed",
                 )
                 st.session_state[f"ui_tf_{market}"] = timeframe
+
+        if scanner_id == 2 and timeframe in ("1m", "3m", "5m"):
+            st.caption("⚠ Head & Shoulders is mostly noise on small timeframes — 15m or higher works best.")
 
         # Min score
         score_default = int(st.session_state.get(f"ui_score_{market}", 60))
@@ -1146,7 +1619,10 @@ if page == "dashboard":
             results = []
             for i, sym in enumerate(current_list):
                 status_slot.caption(f"Scanning {sym} ({i+1}/{len(current_list)})")
-                res = scan_symbol(sym, interval=timeframe, rules=active_rules)
+                if scanner_id == 2:
+                    res = scan_hns(sym, interval=timeframe, rules=hns_rules)
+                else:
+                    res = scan_symbol(sym, interval=timeframe, rules=active_rules)
                 if res:
                     if only_full and not res.get("full_match"):
                         pass
@@ -1167,12 +1643,14 @@ if page == "dashboard":
             st.session_state["last_scan"] = datetime.now().strftime("%H:%M")
             st.session_state["last_market"] = market
             st.session_state["last_tf"] = timeframe
+            st.session_state["last_scanner"] = SCANNER_NAMES[scanner_id]
 
             # clean history entry
             hist_entry = {
                 "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "market": market,
                 "timeframe": timeframe,
+                "scanner": SCANNER_NAMES[scanner_id],
                 "count": len(light),
                 "symbols": [x["symbol"] for x in light[:15]],
                 "top_score": light[0]["score"] if light else 0,
@@ -1209,7 +1687,7 @@ if page == "dashboard":
     if st.session_state.get("last_scan"):
         with kc("panel_dash_results"):
             st.markdown(
-                f'<div class="ptitle">Results • {st.session_state.get("last_market","")} • '
+                f'<div class="ptitle">Results • {st.session_state.get("last_scanner","Scanner 1")[:9]} • {st.session_state.get("last_market","")} • '
                 f'{st.session_state.get("last_tf","")} • {st.session_state.get("last_scan","—")}</div>',
                 unsafe_allow_html=True,
             )
@@ -1307,9 +1785,38 @@ if page == "dashboard":
 # ====================================================================
 #                                RULES
 # ====================================================================
+elif page == "rules" and scanner_id == 2:
+    with kc("panel_rules_head"):
+        page_title("Scanner 2 Rules", "Head & Shoulders / Inverse H&S — change any number, then Save")
+    dyn_css += scanner_picker()
+
+    new_rules = dict(hns_rules)
+    for gi, (g_title, g_fields) in enumerate(HNS_FIELDS):
+        with kc(f"panel_hns_{gi}"):
+            st.markdown(f'<div class="ptitle">{g_title}</div>', unsafe_allow_html=True)
+            for name, kind, label, lo, hi, step, hlp in g_fields:
+                wk = f"hns_{name}"
+                if kind == "bool":
+                    new_rules[name] = st.checkbox(label, value=bool(hns_rules[name]), key=wk, help=hlp)
+                elif kind == "int":
+                    new_rules[name] = int(st.number_input(label, min_value=int(lo), max_value=int(hi),
+                                                          value=int(hns_rules[name]), step=int(step), key=wk, help=hlp))
+                else:
+                    new_rules[name] = float(st.number_input(label, min_value=float(lo), max_value=float(hi),
+                                                            value=float(hns_rules[name]), step=float(step),
+                                                            format="%.2f", key=wk, help=hlp))
+
+    with kc("panel_hns_save"):
+        if st.button("💾 Save Scanner 2 rules", type="primary", use_container_width=True, key="save_hns"):
+            save_json(HNS_FILE, new_rules)
+            st.success("Saved — applies to the next scan")
+        st.button("↩️ Reset to recommended defaults", use_container_width=True, key="reset_hns",
+                  on_click=reset_hns_rules)
+
 elif page == "rules":
     with kc("panel_rules_head"):
         page_title("Scanner Rules", "View and change the rules the scanner uses")
+    dyn_css += scanner_picker()
 
     with kc("panel_rules_body"):
         st.write(scanners[scanner_name].get("description", "Price action scanner"))
@@ -1415,6 +1922,7 @@ elif page == "results":
     with kc("panel_res_head"):
         page_title(
             "Scan Results",
+            f"{st.session_state.get('last_scanner','Scanner 1 · Price Action')} • "
             f"{st.session_state.get('last_market','')} • {st.session_state.get('last_tf','')} • "
             f"{st.session_state.get('last_scan','—')}",
         )
@@ -1472,7 +1980,7 @@ elif page == "history":
             st.markdown(
                 f'<div class="card"><div style="font-weight:800;font-size:1.02rem;">{h.get("time","")}</div>'
                 f'<div style="color:#9aabc8;margin-top:0.25rem;font-size:0.9rem;">'
-                f'{h.get("market","")} • {h.get("timeframe","")} • <b>{h.get("count",0)}</b> setups{top}</div>'
+                f'{h.get("scanner","Scanner 1 · Price Action")}<br>{h.get("market","")} • {h.get("timeframe","")} • <b>{h.get("count",0)}</b> setups{top}</div>'
                 f'<div style="margin-top:0.3rem;">{chips or "—"}</div></div>',
                 unsafe_allow_html=True,
             )
