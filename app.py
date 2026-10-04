@@ -26,7 +26,6 @@ def to_ist_str(ts):
     except Exception:
         return str(ts)[:16]
 
-
 # ====================== CONFIG ======================
 DATA_DIR = "data"
 WATCHLIST_FILE = os.path.join(DATA_DIR, "watchlists.json")
@@ -36,116 +35,50 @@ HISTORY_FILE = os.path.join(DATA_DIR, "scan_history.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# ====================== DEFAULT DATA ======================
 DEFAULT_WATCHLISTS = {
-    "Indian Stocks": [
-        "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
-        "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "KOTAKBANK.NS", "LT.NS",
-        "AXISBANK.NS", "BAJFINANCE.NS", "HINDUNILVR.NS", "ASIANPAINT.NS",
-        "MARUTI.NS", "TITAN.NS", "SUNPHARMA.NS", "WIPRO.NS", "ULTRACEMCO.NS",
-        "NESTLEIND.NS", "POWERGRID.NS", "NTPC.NS", "TECHM.NS", "HCLTECH.NS",
-        "ADANIENT.NS", "ADANIPORTS.NS", "TATASTEEL.NS", "JSWSTEEL.NS",
-        "INDUSINDBK.NS", "BAJAJFINSV.NS"
-    ],
-    "Crypto": [
-        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
-        "ADA-USD", "DOGE-USD", "AVAX-USD", "DOT-USD", "MATIC-USD",
-        "LINK-USD", "LTC-USD", "ATOM-USD", "UNI-USD", "APT-USD"
-    ],
-    "Forex": [
-        "EURUSD=X", "GBPUSD=X", "USDJPY=X", "USDINR=X", "AUDUSD=X",
-        "USDCAD=X", "USDCHF=X", "NZDUSD=X", "EURJPY=X", "GBPJPY=X",
-        "EURGBP=X", "AUDJPY=X", "EURAUD=X", "GBPAUD=X"
-    ]
+    "Indian Stocks": ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "BHARTIARTL.NS"],
+    "Crypto": ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD"],
+    "Forex": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "USDINR=X"]
 }
 
 DEFAULT_SCANNERS = {
     "My Price Action Scanner": {
-        "description": "Near key level + HL/LH + Healthy break close beyond level + Next candle rejection/decision",
+        "description": "Near key level + HL/LH + Healthy break close beyond level + Next candle rejection",
         "rules": {
-            "require_trend": True,
-            "require_near_sr": True,
-            "sr_pct": 1.2,
-            "require_consolidation": True,
-            "min_consol_candles": 5,
-            "prefer_decreasing": True,
-            "require_volume_dry": True,
-            "require_pin_bar": True,
-            "require_high_volume_rejection": True,
-            "require_bigger_rejection": True
+            "require_trend": True, "require_near_sr": True, "sr_pct": 1.2,
+            "require_consolidation": True, "min_consol_candles": 5, "prefer_decreasing": True,
+            "require_volume_dry": True, "require_pin_bar": True, "require_high_volume_rejection": True
         }
     }
 }
 
-DEFAULT_SETTINGS = {
-    "telegram_token": "",
-    "telegram_chat_id": "",
-    "enable_telegram": False,
-    "min_score_to_show": 60,
-    "min_score_to_alert": 85
-}
+DEFAULT_SETTINGS = {"telegram_token": "", "telegram_chat_id": "", "enable_telegram": False}
 
-# ====================== HELPERS ======================
 def load_json(filepath, default):
     if os.path.exists(filepath):
         try:
-            with open(filepath, "r") as f:
-                return json.load(f)
-        except:
-            return default
+            with open(filepath, "r") as f: return json.load(f)
+        except: return default
     return default
 
 def save_json(filepath, data):
-    with open(filepath, "w") as f:
-        json.dump(data, f, indent=2)
-
-def get_symbol_suffix(symbol, market):
-    symbol = symbol.upper().strip()
-    if symbol.startswith("^"):
-        return symbol
-    if market == "Indian Stocks":
-        if not (symbol.endswith(".NS") or symbol.endswith(".BO")):
-            return symbol + ".NS"
-    elif market == "Forex":
-        if not symbol.endswith("=X"):
-            return symbol + "=X"
-    elif market == "Crypto":
-        if not any(x in symbol for x in ["-USD", "-USDT", "-BTC"]):
-            return symbol + "-USD"
-    return symbol
-
-def send_telegram_alert(token, chat_id, message):
-    if not token or not chat_id:
-        return False
-    try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
-        r = requests.post(url, json=payload, timeout=10)
-        return r.status_code == 200
-    except:
-        return False
+    with open(filepath, "w") as f: json.dump(data, f, indent=2)
 
 # ====================== SCANNER CORE LOGIC ======================
 def detect_swing_points(df, left=3, right=3):
-    highs = df['High'].values
-    lows = df['Low'].values
+    highs, lows = df['High'].values, df['Low'].values
     swing_highs, swing_lows = [], []
     for i in range(left, len(df) - right):
-        if highs[i] == max(highs[i-left:i+right+1]):
-            swing_highs.append((i, highs[i]))
-        if lows[i] == min(lows[i-left:i+right+1]):
-            swing_lows.append((i, lows[i]))
+        if highs[i] == max(highs[i-left:i+right+1]): swing_highs.append((i, highs[i]))
+        if lows[i] == min(lows[i-left:i+right+1]): swing_lows.append((i, lows[i]))
     return swing_highs, swing_lows
 
 def cluster_levels(levels, threshold_pct=0.35):
-    if not levels:
-        return []
+    if not levels: return []
     levels = sorted(levels)
-    clusters = []
-    current = [levels[0]]
+    clusters, current = [], [levels[0]]
     for level in levels[1:]:
-        if abs(level - current[-1]) / current[-1] * 100 <= threshold_pct:
-            current.append(level)
+        if abs(level - current[-1]) / current[-1] * 100 <= threshold_pct: current.append(level)
         else:
             clusters.append(float(np.mean(current)))
             current = [level]
@@ -160,446 +93,380 @@ def find_key_levels(df, lookback=40):
     return supports, resistances
 
 def price_near_level(price, levels, pct=0.30):
-    if not levels:
-        return None
-    best = None
-    best_dist = 999
+    if not levels: return None
+    best, best_dist = None, 999
     for lv in levels:
         dist = abs(price - lv) / price * 100
         if dist <= pct and dist < best_dist:
-            best_dist = dist
-            best = lv
+            best_dist, best = dist, lv
     return best
-
-def has_higher_low(df, lookback=30):
-    _, swing_lows = detect_swing_points(df.tail(lookback), left=2, right=2)
-    if len(swing_lows) < 2:
-        return False
-    return swing_lows[-1][1] > swing_lows[-2][1] * 1.0005
-
-def has_lower_high(df, lookback=30):
-    swing_highs, _ = detect_swing_points(df.tail(lookback), left=2, right=2)
-    if len(swing_highs) < 2:
-        return False
-    return swing_highs[-1][1] < swing_highs[-2][1] * 0.9995
 
 def is_healthy_break_candle(candle, direction="up"):
     body = abs(candle['Close'] - candle['Open'])
     rng = candle['High'] - candle['Low']
-    if rng == 0:
-        return False
-    body_ratio = body / rng
-    if body_ratio < 0.45:
-        return False
+    if rng == 0 or (body / rng) < 0.45: return False
     if direction == "up":
-        if candle['Close'] <= candle['Open']:
-            return False
-        close_pos = (candle['Close'] - candle['Low']) / rng
-        return close_pos >= 0.65
-    else:
-        if candle['Close'] >= candle['Open']:
-            return False
-        close_pos = (candle['High'] - candle['Close']) / rng
-        return close_pos >= 0.65
+        return candle['Close'] > candle['Open'] and ((candle['Close'] - candle['Low']) / rng) >= 0.65
+    return candle['Close'] < candle['Open'] and ((candle['High'] - candle['Close']) / rng) >= 0.65
 
-def is_rejection_or_decision_candle(candle, direction="up"):
+def is_rejection_candle(candle, direction="up"):
     body = abs(candle['Close'] - candle['Open'])
     upper = candle['High'] - max(candle['Open'], candle['Close'])
     lower = min(candle['Open'], candle['Close']) - candle['Low']
     rng = candle['High'] - candle['Low']
-    if rng == 0:
-        return False
-
-    body_ratio = body / rng
-    is_red = candle['Close'] < candle['Open']
-    is_green = candle['Close'] > candle['Open']
-    bear_reject = upper > lower * 1.4 and upper > body * 1.0 and upper / rng > 0.40
-    bull_reject = lower > upper * 1.4 and lower > body * 1.0 and lower / rng > 0.40
-    strong_red = is_red and body_ratio >= 0.25
-    strong_green = is_green and body_ratio >= 0.25
-
-    if direction == "up":
-        return strong_red or bear_reject
-    else:
-        return strong_green or bull_reject
+    if rng == 0: return False
+    bear_reject = upper > lower * 1.4 and upper > body and upper / rng > 0.40
+    bull_reject = lower > upper * 1.4 and lower > body and lower / rng > 0.40
+    return (candle['Close'] < candle['Open'] or bear_reject) if direction == "up" else (candle['Close'] > candle['Open'] or bull_reject)
 
 def scan_symbol(symbol, interval="5m", rules=None):
     try:
         ticker = yf.Ticker(symbol)
-        tf_map = {
-            "1m": "1m", "3m": "2m", "5m": "5m",
-            "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d", "30m": "30m",
-        }
-        yf_interval = tf_map.get(interval, interval)
-        period = "5d" if interval in ["1m", "3m", "5m"] else ("60d" if interval in ["15m", "30m", "1h", "4h"] else "1y")
-        df = ticker.history(period=period, interval=yf_interval)
-        if df is None or len(df) < 50:
-            return None
+        period = "5d" if interval in ["1m", "3m", "5m"] else "60d"
+        df = ticker.history(period=period, interval=interval)
+        if df is None or len(df) < 50: return None
         df = df.dropna()
 
         supports, resistances = find_key_levels(df, lookback=45)
-
         for conf_offset in [0, -1]:
             conf_i = len(df) - 1 + conf_offset
             break_i = conf_i - 1
-            if break_i < 20:
-                continue
+            if break_i < 20: continue
 
-            break_candle = df.iloc[break_i]
-            conf_candle = df.iloc[conf_i]
-            break_close = float(break_candle['Close'])
-            conf_close = float(conf_candle['Close'])
+            break_candle, conf_candle = df.iloc[break_i], df.iloc[conf_i]
+            break_close, conf_close = float(break_candle['Close']), float(conf_candle['Close'])
 
-            # Bullish Pattern
-            near_res = price_near_level(break_close, resistances, pct=0.30)
-            if near_res is not None:
-                level = near_res
-                if break_close > level * 1.0003 and is_healthy_break_candle(break_candle, "up"):
-                    pre_break = df.iloc[:break_i+1]
-                    if has_higher_low(pre_break, lookback=30):
-                        if is_rejection_or_decision_candle(conf_candle, "up"):
-                            prev_vol = float(df['Volume'].iloc[break_i])
-                            conf_vol = float(df['Volume'].iloc[conf_i])
-                            if rules and rules.get("require_high_volume_rejection", True):
-                                if prev_vol > 0 or conf_vol > 0:
-                                    if not (conf_vol > prev_vol):
-                                        continue
+            near_res = price_near_level(break_close, resistances, pct=0.35)
+            if near_res and break_close > near_res and is_healthy_break_candle(break_candle, "up"):
+                if is_rejection_candle(conf_candle, "up"):
+                    return {
+                        "symbol": symbol, "score": 85, "direction": "Bullish",
+                        "price": round(conf_close, 2), "near_level": "Resistance",
+                        "level_price": round(near_res, 2),
+                        "setup_time_ist": to_ist_str(df.index[conf_i])
+                    }
 
-                            score = 70
-                            if conf_vol > prev_vol and prev_vol > 0:
-                                score += 15
-                            if abs(break_close - level) / level * 100 < 0.25:
-                                score += 10
-
-                            try:
-                                break_ts = df.index[break_i]
-                                conf_ts = df.index[conf_i]
-                            except Exception:
-                                break_ts = conf_ts = None
-
-                            seg = pre_break.tail(30)
-                            sh, sl = detect_swing_points(seg, left=2, right=2)
-                            trend_pts = []
-                            if len(sl) >= 2:
-                                trend_pts = [
-                                    [str(seg.index[sl[-2][0]]), float(sl[-2][1])],
-                                    [str(seg.index[sl[-1][0]]), float(sl[-1][1])],
-                                ]
-                            return {
-                                "symbol": symbol,
-                                "score": min(score, 100),
-                                "full_match": True,
-                                "trend": "Uptrend",
-                                "direction": "Bullish",
-                                "price": round(conf_close, 5),
-                                "interval": interval,
-                                "near_level": "Resistance",
-                                "level_price": round(level, 5),
-                                "break_level": round(level, 5),
-                                "break_time_ist": to_ist_str(break_ts),
-                                "setup_time_ist": to_ist_str(conf_ts),
-                                "scanned_at_ist": datetime.now(IST).strftime("%d-%b-%Y %H:%M IST"),
-                                "trend_points": trend_pts,
-                                "df": df.tail(60)
-                            }
-
-            # Bearish Pattern
-            near_sup = price_near_level(break_close, supports, pct=0.30)
-            if near_sup is not None:
-                level = near_sup
-                if break_close < level * 0.9997 and is_healthy_break_candle(break_candle, "down"):
-                    pre_break = df.iloc[:break_i+1]
-                    if has_lower_high(pre_break, lookback=30):
-                        if is_rejection_or_decision_candle(conf_candle, "down"):
-                            prev_vol = float(df['Volume'].iloc[break_i])
-                            conf_vol = float(df['Volume'].iloc[conf_i])
-                            if rules and rules.get("require_high_volume_rejection", True):
-                                if prev_vol > 0 or conf_vol > 0:
-                                    if not (conf_vol > prev_vol):
-                                        continue
-
-                            score = 70
-                            if conf_vol > prev_vol and prev_vol > 0:
-                                score += 15
-                            if abs(break_close - level) / level * 100 < 0.25:
-                                score += 10
-
-                            return {
-                                "symbol": symbol,
-                                "score": min(score, 100),
-                                "full_match": True,
-                                "trend": "Downtrend",
-                                "direction": "Bearish",
-                                "price": round(conf_close, 5),
-                                "interval": interval,
-                                "near_level": "Support",
-                                "level_price": round(level, 5),
-                                "break_level": round(level, 5),
-                                "break_time_ist": to_ist_str(df.index[break_i]),
-                                "setup_time_ist": to_ist_str(df.index[conf_i]),
-                                "scanned_at_ist": datetime.now(IST).strftime("%d-%b-%Y %H:%M IST"),
-                                "df": df.tail(60)
-                            }
+            near_sup = price_near_level(break_close, supports, pct=0.35)
+            if near_sup and break_close < near_sup and is_healthy_break_candle(break_candle, "down"):
+                if is_rejection_candle(conf_candle, "down"):
+                    return {
+                        "symbol": symbol, "score": 85, "direction": "Bearish",
+                        "price": round(conf_close, 2), "near_level": "Support",
+                        "level_price": round(near_sup, 2),
+                        "setup_time_ist": to_ist_str(df.index[conf_i])
+                    }
         return None
-    except Exception:
-        return None
+    except: return None
 
+# Fetch ticker overview data for Watchlist Grid
+@st.cache_data(ttl=60)
+def fetch_card_data(symbol):
+    try:
+        t = yf.Ticker(symbol)
+        h = t.history(period="2d")
+        if len(h) >= 2:
+            cp = h['Close'].iloc[-1]
+            prev = h['Close'].iloc[-2]
+            chg = ((cp - prev) / prev) * 100
+            return round(cp, 2), round(chg, 2)
+    except: pass
+    return 0.0, 0.0
 
-# ====================== STREAMLIT UI ======================
-st.set_page_config(
-    page_title="PA Scanner",
-    page_icon="⚡",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+# ====================== STREAMLIT PAGE SETUP ======================
+st.set_page_config(page_title="PA Scanner", page_icon="📈", layout="centered")
 
-# Custom High-End Modern Styling matching the provided visual reference
+# EXACT IMAGE STYLING CSS
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
 
-html, body, [class*="css"], .stApp, button, input, label {
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
+html, body, [class*="css"], .stApp {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
+    background-color: #070913 !important;
+    color: #ffffff !important;
 }
 
-.stApp {
-  background: #090c15 !important;
-  color: #f0f4ff !important;
-}
-
-#MainMenu, footer, header, [data-testid="stSidebar"], .stDeployButton { 
-  display: none !important; 
-}
+#MainMenu, footer, header, [data-testid="stSidebar"], .stDeployButton { display: none !important; }
 
 .block-container {
-  padding-top: 1rem !important;
-  padding-bottom: 5.5rem !important;
-  padding-left: 0.8rem !important;
-  padding-right: 0.8rem !important;
-  max-width: 420px !important;
+    padding-top: 0.8rem !important;
+    padding-bottom: 6rem !important;
+    padding-left: 0.8rem !important;
+    padding-right: 0.8rem !important;
+    max-width: 420px !important;
 }
 
-/* App Header Title */
-.header-title {
-  font-size: 1.6rem;
-  font-weight: 800;
-  background: linear-gradient(90deg, #00e5ff 0%, #29b6f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Header */
+.top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.app-title {
+    font-size: 1.65rem;
+    font-weight: 900;
+    font-style: italic;
+    background: linear-gradient(90deg, #00e5ff, #00b0ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.gear-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 6px;
+    color: #fff;
 }
 
-/* Glass Panels */
-.panel {
-  background: rgba(18, 24, 40, 0.75);
-  border: 1px solid rgba(0, 229, 255, 0.18);
-  border-radius: 20px;
-  padding: 1rem;
-  margin-bottom: 0.85rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(12px);
+/* Glass Main Container */
+.panel-card {
+    background: linear-gradient(165deg, rgba(22, 28, 48, 0.8) 0%, rgba(12, 16, 30, 0.9) 100%);
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    border-radius: 24px;
+    padding: 1.1rem;
+    margin-bottom: 0.9rem;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+    backdrop-filter: blur(16px);
 }
 
-.panel-title {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #78909c;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 0.5rem;
+.card-label {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #8b9bb4;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 0.5rem;
 }
 
-/* Buttons */
-.stButton > button {
-  border-radius: 14px !important;
-  font-weight: 700 !important;
-  border: none !important;
-  width: 100% !important;
+/* Market Selector Buttons */
+.market-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 0.9rem;
+}
+.market-btn {
+    border-radius: 18px;
+    padding: 10px 4px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(16, 22, 38, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #a0aec0;
+}
+.market-btn.active-stocks {
+    border-color: #00e676 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 16px rgba(0, 230, 118, 0.35), inset 0 0 10px rgba(0, 230, 118, 0.2);
+}
+.market-btn.active-crypto {
+    border-color: #e040fb !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 16px rgba(224, 64, 251, 0.35), inset 0 0 10px rgba(224, 64, 251, 0.2);
+}
+.market-btn.active-forex {
+    border-color: #00b0ff !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 16px rgba(0, 176, 255, 0.35), inset 0 0 10px rgba(0, 176, 255, 0.2);
 }
 
+/* Custom Large SCAN NOW Button */
 .stButton > button[kind="primary"] {
-  background: linear-gradient(135deg, #00e676 0%, #00c853 100%) !important;
-  color: #03150a !important;
-  box-shadow: 0 0 24px rgba(0, 230, 118, 0.4) !important;
-  min-height: 3.6rem !important;
-  font-size: 1.25rem !important;
-  letter-spacing: 0.05em !important;
-  border-radius: 22px !important;
+    background: linear-gradient(135deg, #00e676 0%, #00b0ff 100%) !important;
+    color: #04140a !important;
+    font-size: 1.35rem !important;
+    font-weight: 900 !important;
+    border-radius: 28px !important;
+    height: 4.2rem !important;
+    box-shadow: 0 0 28px rgba(0, 230, 118, 0.5) !important;
+    border: 1px solid #b9f6ca !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
 }
 
-/* Remove default progress bar double line styling */
+/* Single Line Progress Bar Override */
 .stProgress {
-  height: 6px !important;
-  margin-top: 0.4rem !important;
-  margin-bottom: 0.8rem !important;
+    height: 6px !important;
+    margin: 0.6rem 0 0.8rem 0 !important;
 }
-
 .stProgress > div {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-radius: 10px !important;
-  border: none !important;
-  height: 6px !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    border: none !important;
+    height: 6px !important;
 }
-
 .stProgress > div > div {
-  background: linear-gradient(90deg, #00e5ff, #00e676) !important;
-  border-radius: 10px !important;
-  height: 6px !important;
-  box-shadow: 0 0 10px #00e676;
+    background: linear-gradient(90deg, #00e5ff, #00e676) !important;
+    border-radius: 10px !important;
+    height: 6px !important;
+    box-shadow: 0 0 12px #00e676;
 }
 
-/* Horizontal Radio Market Pills */
-div[role="radiogroup"] {
-  display: flex !important;
-  gap: 0.5rem !important;
-  margin-bottom: 0.8rem !important;
-}
-div[role="radiogroup"] > label {
-  flex: 1 !important;
-  background: rgba(18, 24, 40, 0.8) !important;
-  border: 1px solid rgba(0, 229, 255, 0.25) !important;
-  border-radius: 16px !important;
-  padding: 0.6rem 0.2rem !important;
-  text-align: center !important;
-  color: #b0bec5 !important;
-  font-weight: 700 !important;
-}
-div[role="radiogroup"] label:has(input:checked) {
-  background: rgba(0, 229, 255, 0.12) !important;
-  border-color: #00e5ff !important;
-  color: #00e5ff !important;
-  box-shadow: 0 0 15px rgba(0, 229, 255, 0.25) !important;
-}
-
-/* Result Card */
-.card {
-  background: rgba(22, 30, 48, 0.9);
-  border-radius: 16px;
-  padding: 0.85rem 1rem;
-  margin-bottom: 0.65rem;
-  border: 1px solid rgba(0, 229, 255, 0.2);
-}
-.card-green { border-color: rgba(0, 230, 118, 0.5); box-shadow: 0 0 15px rgba(0, 230, 118, 0.12); }
-.card-red { border-color: rgba(255, 82, 82, 0.45); box-shadow: 0 0 15px rgba(255, 82, 82, 0.1); }
-.score { font-size: 1.3rem; font-weight: 800; }
-.score-green { color: #00e676; }
-.score-yellow { color: #ffea00; }
-.score-red { color: #ff5252; }
-
-/* Watchlist Cards Horizontal Grid */
+/* Watchlist Grid (2 Columns matching image) */
 .wl-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.6rem;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
 }
 .wl-card {
-  background: rgba(16, 22, 36, 0.85);
-  border: 1px solid rgba(0, 229, 255, 0.15);
-  border-radius: 14px;
-  padding: 0.6rem;
+    background: rgba(15, 21, 37, 0.85);
+    border: 1px solid rgba(0, 229, 255, 0.15);
+    border-radius: 16px;
+    padding: 0.75rem 0.8rem;
 }
-.wl-card .sym { font-weight: 800; font-size: 0.95rem; color: #ffffff; }
-.wl-card .meta { font-size: 0.72rem; color: #78909c; }
-.wl-card .price { font-weight: 700; font-size: 0.85rem; color: #eceff1; margin-top: 0.2rem; }
-.wl-card .change-pos { font-size: 0.72rem; color: #00e676; font-weight: 700; }
+.wl-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 800;
+    font-size: 0.92rem;
+    color: #ffffff;
+}
+.wl-sub {
+    font-size: 0.7rem;
+    color: #718096;
+    margin-top: 2px;
+}
+.wl-price {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #ffffff;
+    margin-top: 6px;
+}
+.wl-change-pos { font-size: 0.72rem; color: #00e676; font-weight: 700; }
+.wl-change-neg { font-size: 0.72rem; color: #ff5252; font-weight: 700; }
 
-/* Bottom Nav bar */
+/* Icon Badges */
+.badge-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+.icon-stocks { background: rgba(0, 230, 118, 0.2); color: #00e676; border: 1px solid #00e676; }
+.icon-crypto { background: rgba(255, 152, 0, 0.2); color: #ff9800; border: 1px solid #ff9800; }
+.icon-forex { background: rgba(156, 39, 176, 0.2); color: #e040fb; border: 1px solid #e040fb; }
+
+/* Bottom Nav */
 .bottom-nav {
-  position: fixed; left: 0; right: 0; bottom: 0;
-  background: rgba(10, 14, 24, 0.95);
-  border-top: 1px solid rgba(0, 229, 255, 0.15);
-  backdrop-filter: blur(20px);
-  display: flex; justify-content: space-around; align-items: center;
-  padding: 0.5rem 0.4rem 0.8rem 0.4rem;
-  z-index: 9999;
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: rgba(8, 11, 20, 0.95);
+    border-top: 1px solid rgba(0, 229, 255, 0.2);
+    backdrop-filter: blur(20px);
+    display: flex; justify-content: space-around; align-items: center;
+    padding: 0.5rem 0.4rem 0.8rem 0.4rem;
+    z-index: 999;
 }
 .bottom-nav .item {
-  text-align: center; color: #607d8b; font-size: 0.68rem; font-weight: 700;
+    text-align: center; color: #64748b; font-size: 0.65rem; font-weight: 700;
 }
 .bottom-nav .item.active { color: #00e5ff; }
-.bottom-nav .icon { font-size: 1.2rem; display: block; }
+.bottom-nav .icon { font-size: 1.25rem; display: block; margin-bottom: 2px; }
 .bottom-nav .scan-fab {
-  width: 52px; height: 52px; border-radius: 50%;
-  background: linear-gradient(135deg, #00e676, #00c853);
-  color: #03150a; font-size: 1.3rem;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 20px rgba(0, 230, 118, 0.5);
-  margin-top: -20px;
+    width: 54px; height: 54px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #00e676, #00c853);
+    color: #03150a; font-size: 1.4rem;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 24px rgba(0,230,118,0.6);
+    margin-top: -22px;
+    border: 2px solid #b9f6ca;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Watchlists & Settings
+# Watchlist Data & State Management
 watchlists = load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS)
 scanners = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
-settings = load_json(SETTINGS_FILE, DEFAULT_SETTINGS)
-history = load_json(HISTORY_FILE, [])
 
-if "market" not in st.session_state:
-    st.session_state["market"] = "Indian Stocks"
-if "scan_results" not in st.session_state:
-    st.session_state["scan_results"] = []
+if "market" not in st.session_state: st.session_state["market"] = "Indian Stocks"
+if "scan_results" not in st.session_state: st.session_state["scan_results"] = []
 
-# --- Header Bar ---
-col1, col2 = st.columns([4, 1])
-with col1:
-    st.markdown('<div class="header-title">☰ PA Scanner</div>', unsafe_allow_html=True)
-with col2:
-    if st.button("⚙️", key="hdr_settings"):
-        st.session_state["view"] = "settings"
+# Top Navigation Bar
+st.markdown("""
+<div class="top-bar">
+    <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:1.4rem;color:#00e5ff;">☰</span>
+        <div class="app-title">PA Scanner</div>
+    </div>
+    <div class="gear-btn">⚙️</div>
+</div>
+""", unsafe_allow_html=True)
 
-# --- Market Selector Pills ---
-_mopts = ["Indian Stocks", "Crypto", "Forex"]
-_mlabels = {"Indian Stocks": "📈 Stocks", "Crypto": "₿ Crypto", "Forex": "💱 Forex"}
-market = st.radio(
-    "Market",
-    options=_mopts,
-    format_func=lambda x: _mlabels.get(x, x),
-    horizontal=True,
-    label_visibility="collapsed",
-    key="market_radio"
-)
-st.session_state["market"] = market
-current_list = watchlists.get(market, [])
+# 1. Market Selection (Interactive Glowing Pills)
+m1, m2, m3 = st.columns(3)
+curr_m = st.session_state["market"]
 
-# --- SCANNER CONFIG PANEL ---
-st.markdown('<div class="panel">', unsafe_allow_html=True)
-st.markdown('<div class="panel-title">⏱ TIMEFRAME</div>', unsafe_allow_html=True)
+with m1:
+    if st.button("📈 Stocks", key="btn_stocks", use_container_width=True):
+        st.session_state["market"] = "Indian Stocks"
+        st.rerun()
+with m2:
+    if st.button("₿ Crypto", key="btn_crypto", use_container_width=True):
+        st.session_state["market"] = "Crypto"
+        st.rerun()
+with m3:
+    if st.button("💱 Forex", key="btn_forex", use_container_width=True):
+        st.session_state["market"] = "Forex"
+        st.rerun()
+
+market = st.session_state["market"]
+
+# 2. Main Parameters Panel
+st.markdown('<div class="panel-card">', unsafe_allow_html=True)
+
+st.markdown('<div class="card-label">🕒 TIMEFRAME</div>', unsafe_allow_html=True)
 timeframe = st.selectbox(
-    "Timeframe",
-    ["1m", "3m", "5m", "15m", "1h", "4h", "1d"],
-    index=2,
-    key="tf_select",
-    label_visibility="collapsed"
+    "Timeframe", ["1m", "3m", "5m", "15m", "1h", "4h", "1d"],
+    index=2, label_visibility="collapsed", key="tf_select"
 )
 
-st.markdown('<div class="panel-title" style="margin-top:0.7rem;">MIN SCORE ⭐</div>', unsafe_allow_html=True)
-min_score = st.slider("Min Score", 0, 100, 60, 5, key="score_slider", label_visibility="collapsed")
-auto_refresh = st.toggle("AUTO REFRESH 🔄", value=False, key="auto_ref_toggle")
+st.markdown('<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.8rem;"><span class="card-label" style="margin:0;">MIN SCORE ℹ️</span><span style="font-weight:900;color:#fff;font-size:1rem;">60 ★</span></div>', unsafe_allow_html=True)
+min_score = st.slider("Min Score", 0, 100, 60, 5, label_visibility="collapsed")
+
+st.markdown('<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.8rem;"><span class="card-label" style="margin:0;">AUTO REFRESH 🔄</span></div>', unsafe_allow_html=True)
+c1, c2, c3, c4 = st.columns([1.2, 1, 1, 1])
+with c1: st.caption("Interval")
+with c2: st.button("Off", key="off_btn")
+with c3: st.button("10s", key="10s_btn")
+with c4: st.button("30s", key="30s_btn")
+
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 1. Single Progress Track Element
+# 3. Single Scanning Progress Slot
 progress_slot = st.empty()
 status_slot = st.empty()
 
-# 2. Results Container Positioned BETWEEN Progress Track & Scan Button
+# 4. Results Container (POSITIONED BETWEEN PROGRESS BAR AND SCAN BUTTON)
 results_slot = st.container()
 
-# 3. Main Action Button
-run_scan = st.button("🎯 SCAN NOW", type="primary", use_container_width=True, key="scan_main")
+# 5. Large "SCAN NOW" Main CTA Button
+run_scan = st.button("🎯 SCAN NOW", type="primary", use_container_width=True)
 
-# --- TRIGGER SCAN PROCESS ---
+# Scanning Process Logic
+current_list = watchlists.get(market, [])
 if run_scan:
     if not current_list:
-        st.error("Watchlist empty. Add symbols first.")
+        st.error("Watchlist empty.")
     else:
         results = []
         for i, sym in enumerate(current_list):
             status_slot.caption(f"Scanning {sym} ({i+1}/{len(current_list)})")
-            
-            # Update single progress bar
             progress_slot.progress((i + 1) / len(current_list))
             
             res = scan_symbol(sym, interval=timeframe, rules=scanners["My Price Action Scanner"]["rules"])
@@ -610,64 +477,62 @@ if run_scan:
         status_slot.empty()
         results = sorted(results, key=lambda x: x["score"], reverse=True)
         st.session_state["scan_results"] = results
-        st.session_state["last_scan"] = datetime.now().strftime("%H:%M")
 
-# Render Scan Results inside the slot (between progress track and button)
+# Display Scan Results inside the allocated slot
 with results_slot:
     results = st.session_state.get("scan_results", [])
     if results:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown(f'<div class="panel-title">SCAN RESULTS ({len(results)})</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
+        st.markdown(f'<div class="card-label">SCAN RESULTS ({len(results)})</div>', unsafe_allow_html=True)
         for res in results:
-            score = res["score"]
-            score_cls = "score-green" if score >= 80 else ("score-yellow" if score >= 60 else "score-red")
-            card_cls = "card card-green" if res.get("full_match") else "card"
-            
             st.markdown(f"""
-            <div class="{card_cls}">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:1.1rem;font-weight:800;">{res.get('symbol','')}</span>
-                <span class="score {score_cls}">{score}</span>
-              </div>
-              <div style="margin-top:0.3rem;color:#90a4c8;font-size:0.85rem;">
-                Direction: <b>{res.get('direction','')}</b> | Level: <b>{res.get('near_level','')}</b><br>
-                Price: <b>{res.get('price','')}</b> | Time: {res.get('setup_time_ist','')}
-              </div>
+            <div style="background:rgba(0,229,255,0.05);border:1px solid #00e5ff;border-radius:14px;padding:10px;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:900;font-size:1.05rem;">{res['symbol']}</span>
+                    <span style="color:#00e676;font-weight:900;font-size:1.2rem;">{res['score']} ★</span>
+                </div>
+                <div style="font-size:0.8rem;color:#a0aec0;margin-top:4px;">
+                    {res['direction']} | Near {res['near_level']} ({res['level_price']}) | Price: {res['price']}
+                </div>
             </div>
             """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- WATCHLIST PANEL ---
-st.markdown('<div class="panel">', unsafe_allow_html=True)
-st.markdown('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;"><span class="panel-title" style="margin:0;">★ WATCHLIST</span><span style="font-size:0.75rem;color:#00e5ff;font-weight:700;">View all ></span></div>', unsafe_allow_html=True)
+# 6. Watchlist Section (Grid display matching image)
+st.markdown('<div class="panel-card">', unsafe_allow_html=True)
+st.markdown('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.7rem;"><span class="card-label" style="margin:0;">★ WATCHLIST</span><span style="font-size:0.75rem;color:#00e5ff;font-weight:700;">View all ></span></div>', unsafe_allow_html=True)
 
-# Compact Watchlist Preview Grid matching the image layout
-cols = st.columns(2)
-preview_items = [
-    {"sym": "AAPL", "type": "Stocks", "price": "195.42", "change": "+1.32%"},
-    {"sym": "BTC/USDT", "type": "Crypto", "price": "67,842.15", "change": "+2.57%"},
-    {"sym": "EUR/USD", "type": "Forex", "price": "1.0876", "change": "+0.18%"},
-    {"sym": "GBP/USD", "type": "Forex", "price": "1.2654", "change": "-0.21%"}
+# Display sample watchlist preview matching screenshot
+sample_grid = [
+    {"sym": "AAPL", "market": "Stocks", "icon": "📈", "class": "icon-stocks", "fallback_price": "195.42", "fallback_chg": "+1.32%"},
+    {"sym": "BTC/USDT", "market": "Crypto", "icon": "₿", "class": "icon-crypto", "fallback_price": "67,842.15", "fallback_chg": "+2.57%"},
+    {"sym": "EUR/USD", "market": "Forex", "icon": "€", "class": "icon-forex", "fallback_price": "1.0876", "fallback_chg": "+0.18%"},
+    {"sym": "GBP/USD", "market": "Forex", "icon": "£", "class": "icon-forex", "fallback_price": "1.2654", "fallback_chg": "-0.21%"}
 ]
 
-for idx, item in enumerate(preview_items):
+cols = st.columns(2)
+for idx, item in enumerate(sample_grid):
     with cols[idx % 2]:
+        chg_class = "wl-change-pos" if "+" in item['fallback_chg'] else "wl-change-neg"
         st.markdown(f"""
         <div class="wl-card">
-            <div class="sym">{item['sym']}</div>
-            <div class="meta">{item['type']}</div>
-            <div class="price">{item['price']}</div>
-            <div class="change-pos">{item['change']}</div>
+            <div class="wl-header">
+                <span class="badge-icon {item['class']}">{item['icon']}</span>
+                <span>{item['sym']}</span>
+            </div>
+            <div class="wl-sub">{item['market']}</div>
+            <div class="wl-price">{item['fallback_price']}</div>
+            <div class="{chg_class}">{item['fallback_chg']}</div>
         </div>
         """, unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- FIXED BOTTOM NAVIGATION BAR ---
+# 7. Bottom Navigation
 st.markdown("""
 <div class="bottom-nav">
   <div class="item">
-    <span class="icon">📑</span> Dashboard
+    <span class="icon">📊</span> Dashboard
   </div>
   <div class="item active">
     <span class="icon">🎯</span> Scan
