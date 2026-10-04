@@ -801,6 +801,285 @@ def scan_hns(symbol, interval="15m", rules=None):
         return None
 
 
+
+
+# ====================== TELEGRAM: CHART IMAGE + FULL DETAILS ======================
+# send_telegram_alert (text only) above is unchanged and is still used as the fallback.
+import io as _io
+import html as _html
+
+
+def _pos_of(df, x_str):
+    """Row position of a timestamp string in df (matches to the minute)."""
+    key = str(x_str)[:16]
+    for n_, ts in enumerate(df.index):
+        if str(ts)[:16] == key:
+            return n_
+    return None
+
+
+def make_alert_chart_png(res):
+    """Draw the setup (candles, S/R or neckline, trendline, pattern points, target/stop) as a PNG.
+    Returns (png_bytes or None, error_text)."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+    except Exception:
+        return None, "matplotlib is not installed (add 'matplotlib' to requirements.txt)"
+
+    try:
+        df = res.get("df")
+        if df is None or len(df) < 5:
+            return None, "no candle data"
+        n = len(df)
+        O = df["Open"].values.astype(float)
+        H = df["High"].values.astype(float)
+        L = df["Low"].values.astype(float)
+        C = df["Close"].values.astype(float)
+        V = df["Volume"].values.astype(float) if "Volume" in df.columns else None
+        has_vol = V is not None and np.nansum(V) > 0
+
+        bg, panel, grid = "#0b1020", "#0f1630", "#1d2750"
+        up, dn, amber = "#26d07c", "#ff5252", "#ffb300"
+        txt = "#dfe6ff"
+
+        if has_vol:
+            fig, (ax, axv) = plt.subplots(2, 1, figsize=(10, 6.4), dpi=110, sharex=True,
+                                          gridspec_kw={"height_ratios": [4, 1], "hspace": 0.04})
+        else:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 5.6), dpi=110)
+            axv = None
+        fig.patch.set_facecolor(bg)
+        for a in [ax] + ([axv] if axv is not None else []):
+            a.set_facecolor(panel)
+            a.grid(True, color=grid, linewidth=0.6, alpha=0.7)
+            a.tick_params(colors=txt, labelsize=8)
+            for sp in a.spines.values():
+                sp.set_color(grid)
+
+        # candles
+        for i in range(n):
+            col = up if C[i] >= O[i] else dn
+            ax.plot([i, i], [L[i], H[i]], color=col, linewidth=1.0, zorder=2)
+            body_lo, body_hi = min(O[i], C[i]), max(O[i], C[i])
+            ax.add_patch(Rectangle((i - 0.33, body_lo), 0.66, max(body_hi - body_lo, (H.max() - L.min()) * 0.0015),
+                                   facecolor=col, edgecolor=col, zorder=3))
+        if axv is not None:
+            axv.bar(range(n), V, color=[up if C[i] >= O[i] else dn for i in range(n)], width=0.7, alpha=0.8)
+            axv.set_ylabel("Vol", color=txt, fontsize=8)
+
+        is_pat = bool(res.get("pattern"))
+        levels_for_ylim = [L.min(), H.max()]
+
+        # support / resistance line (Scanner 1)
+        if res.get("level_price") and not is_pat:
+            lvl = float(res["level_price"])
+            lc = up if res.get("near_level") == "Support" else dn
+            ax.axhline(lvl, color=lc, linestyle="--", linewidth=1.8, zorder=1)
+            ax.text(0.5, lvl, f" {res.get('near_level','Level')} {lvl:g}", color=lc, fontsize=9,
+                    va="bottom", fontweight="bold")
+            levels_for_ylim.append(lvl)
+
+        # trendline / neckline
+        tp = res.get("trend_points") or []
+        pts = []
+        for x_str, y in tp:
+            p_ = _pos_of(df, x_str)
+            if p_ is not None:
+                pts.append((p_, float(y)))
+        if len(pts) >= 2:
+            tcol = amber if is_pat else (up if res.get("direction") == "Bullish" else dn)
+            (x1, y1), (x2, y2) = pts[0], pts[-1]
+            ax.plot([x1, x2], [y1, y2], color=tcol, linewidth=2.2, marker="o", markersize=5, zorder=4)
+            if x2 > x1 and not is_pat:      # extend the trendline to the latest candle
+                slope = (y2 - y1) / (x2 - x1)
+                ax.plot([x2, n - 1], [y2, y2 + slope * (n - 1 - x2)], color=tcol, linewidth=1.4,
+                        linestyle=":", zorder=4)
+            if is_pat:
+                ax.text(x1, y1, " Neckline", color=tcol, fontsize=9, va="top", fontweight="bold")
+
+        # head & shoulders markers, target and stop
+        if is_pat:
+            for lab, x_str, y in (res.get("pattern_points") or []):
+                p_ = _pos_of(df, x_str)
+                if p_ is not None:
+                    inv = res.get("direction") == "Bullish"
+                    ax.scatter([p_], [y], color=amber, s=46, zorder=5)
+                    ax.annotate(lab, (p_, y), textcoords="offset points",
+                                xytext=(0, -14 if inv else 8), ha="center", color="#ffd54f",
+                                fontsize=10, fontweight="bold")
+            if res.get("target") is not None:
+                t_ = float(res["target"])
+                ax.axhline(t_, color=up, linestyle=":", linewidth=1.5)
+                ax.text(n - 1, t_, f"Target {t_:g} ", color=up, fontsize=9, ha="right", va="bottom", fontweight="bold")
+                levels_for_ylim.append(t_)
+            if res.get("stop") is not None:
+                s_ = float(res["stop"])
+                ax.axhline(s_, color=dn, linestyle=":", linewidth=1.5)
+                ax.text(n - 1, s_, f"Stop {s_:g} ", color=dn, fontsize=9, ha="right", va="bottom", fontweight="bold")
+                levels_for_ylim.append(s_)
+
+        # mark break + setup candles
+        labels_ist = [to_ist_str(ts) for ts in df.index]
+        span = max(levels_for_ylim) - min(levels_for_ylim)
+        bt, st_ = res.get("break_time_ist"), res.get("setup_time_ist")
+        marks = []
+        if bt in labels_ist and st_ in labels_ist and bt == st_:
+            marks.append((labels_ist.index(bt), "Break / Setup", "#40c4ff"))
+        else:
+            if bt in labels_ist:
+                marks.append((labels_ist.index(bt), "Break", "#40c4ff"))
+            if st_ in labels_ist:
+                marks.append((labels_ist.index(st_), "Setup", "#ea80fc"))
+        for p_, name, colr in marks:
+            ax.axvline(p_, color=colr, linestyle="--", linewidth=1.0, alpha=0.8)
+            ax.text(p_, max(levels_for_ylim) + span * 0.02, name, color=colr, fontsize=8,
+                    ha=("left" if name == "Setup" else "right"), va="bottom", fontweight="bold")
+
+        pad = span * 0.08 if span > 0 else 1
+        ax.set_ylim(min(levels_for_ylim) - pad, max(levels_for_ylim) + pad * 1.6)
+        ax.set_xlim(-1, n)
+
+        # x labels
+        step = max(1, n // 7)
+        ticks = list(range(0, n, step))
+        tick_txt = [f"{labels_ist[i][:6]}\n{labels_ist[i][12:17]}" for i in ticks]
+        (axv if axv is not None else ax).set_xticks(ticks)
+        (axv if axv is not None else ax).set_xticklabels(tick_txt, color=txt, fontsize=8)
+        if axv is not None:
+            ax.tick_params(labelbottom=False)
+
+        name = res.get("pattern") or f"{res.get('direction','')} setup"
+        fig.suptitle(f"{res.get('symbol','')}  |  {res.get('interval','')}  |  {name}  |  Score {res.get('score','')}",
+                     color="#ffffff", fontsize=13, fontweight="bold", x=0.02, ha="left", y=0.985)
+        fig.text(0.98, 0.012, "PA Scanner", color="#6b7bb5", fontsize=8, ha="right")
+        fig.subplots_adjust(left=0.06, right=0.985, top=0.93, bottom=0.10 if axv is not None else 0.12)
+
+        buf = _io.BytesIO()
+        fig.savefig(buf, format="png", facecolor=bg)
+        plt.close(fig)
+        return buf.getvalue(), ""
+    except Exception as e:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return None, f"chart error: {e}"
+
+
+_S1_RULES = [
+    ("require_near_sr", False, lambda r: f"Near support/resistance (within {r.get('sr_pct', 1)}%)"),
+    ("require_structure", True, lambda r: "Higher-low / lower-high structure"),
+    ("require_healthy_break", True, lambda r: "Healthy breakout/breakdown candle"),
+    ("require_pin_bar", False, lambda r: "Rejection / doji after the break"),
+    ("require_high_volume_rejection", False, lambda r: "Rejection volume > breakout volume"),
+    ("require_consolidation", False, lambda r: "Consolidation before the break"),
+    ("require_volume_dry", False, lambda r: "Volume drying before the break"),
+]
+
+
+def build_alert_text(res, scanner_id, market, timeframe, rules):
+    """Full alert text (HTML for Telegram). Returns (full_text, short_headline)."""
+    e = _html.escape
+    rules = rules or {}
+    bull = res.get("direction") == "Bullish"
+    dot = "🟢" if bull else "🔴"
+    sym = e(str(res.get("symbol", "")))
+    sc_name = "Scanner 2 · Head &amp; Shoulders" if scanner_id == 2 else "Scanner 1 · Price Action"
+
+    head = (f"🚨 <b>{sym}</b>  {dot} {e(str(res.get('pattern') or res.get('direction','')))}"
+            f"{' (' + e(str(res.get('direction',''))) + ')' if res.get('pattern') else ''}\n"
+            f"Score <b>{res.get('score','—')}</b> | {e(str(timeframe))} | Price <b>{res.get('price','—')}</b>")
+
+    lines = [head, f"<i>{sc_name} • {e(str(market))}</i>", ""]
+
+    if res.get("pattern"):
+        lines.append(f"Neckline: <b>{res.get('level_price','—')}</b>")
+        lines.append(f"Target: <b>{res.get('target','—')}</b>   Stop: <b>{res.get('stop','—')}</b>   R:R <b>{res.get('rr','—')}</b>")
+    else:
+        lines.append(f"{e(str(res.get('near_level','Level')))}: <b>{res.get('level_price','—')}</b>  •  Trend: {e(str(res.get('trend','')))}")
+    lines.append(f"Break candle: {e(str(res.get('break_time_ist','—')))}")
+    lines.append(f"Setup candle: {e(str(res.get('setup_time_ist','—')))}")
+    lines.append(f"Scanned: {e(str(res.get('scanned_at_ist','—')))}")
+    lines.append("")
+
+    if res.get("pattern"):
+        d = res.get("details") or {}
+        sc = res.get("scores") or {}
+        lines.append("<b>Score breakdown</b>")
+        lines.append(
+            f"Symmetry {sc.get('symmetry','–')}/25 • Breakout {sc.get('breakout','–')}/25 • "
+            f"Volume {sc.get('volume','–')}/20 • Trend {sc.get('prior_trend','–')}/15 • Neckline {sc.get('neckline','–')}/15"
+        )
+        lines.append("<b>Checks</b>")
+        lines.append(f"✅ Shoulder height diff {d.get('shoulder_diff_pct','–')}% (max {rules.get('max_shoulder_diff_pct','–')}%)")
+        lines.append(f"✅ Left/right time diff {d.get('time_diff_pct','–')}% (max {rules.get('max_time_asym_pct','–')}%)")
+        lines.append(f"✅ Neckline slope {d.get('neckline_angle','–')}° (max {rules.get('max_neckline_slope_deg','–')}°)")
+        lines.append(f"{'✅' if d.get('prior_trend_ok') else '➖'} Prior trend into left shoulder")
+        v = d.get("volume_ok")
+        lines.append(f"{'✅' if v else ('❌' if v is False else '➖')} Volume confirmation" + (" (no volume data)" if v is None else ""))
+        lines.append(f"{'✅' if d.get('retest') else '➖'} Neckline retest")
+        lines.append("✅ Strong breakout candle closed beyond neckline" if rules.get("require_healthy_break", True)
+                     else "✅ Closed beyond neckline")
+    else:
+        lines.append("<b>Rules passed</b>")
+        shown = 0
+        for key, default, label in _S1_RULES:
+            if rules.get(key, default):
+                lines.append(f"✅ {e(label(rules))}")
+                shown += 1
+        if not shown:
+            lines.append("✅ All enabled rules")
+
+    full = "\n".join(lines)
+    short = head
+    return full, short
+
+
+def send_telegram_photo(token, chat_id, photo_bytes, caption):
+    """Send a PNG with caption. Returns (ok, error_text)."""
+    if not token or not chat_id:
+        return False, "missing token / chat id"
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        r = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+            files={"photo": ("chart.png", photo_bytes, "image/png")},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            return True, ""
+        return False, f"Telegram said {r.status_code}: {r.text[:120]}"
+    except Exception as e:
+        return False, str(e)[:120]
+
+
+def send_full_alert(token, chat_id, res, scanner_id, market, timeframe, rules, with_chart=True):
+    """Chart image + full details. Falls back to text-only if the image can't be made/sent.
+    Returns (ok, mode, note)."""
+    full, short = build_alert_text(res, scanner_id, market, timeframe, rules)
+    note = ""
+    if with_chart:
+        png, err = make_alert_chart_png(res)
+        if png:
+            if len(full) <= 1000:
+                ok, err2 = send_telegram_photo(token, chat_id, png, full)
+            else:
+                ok, err2 = send_telegram_photo(token, chat_id, png, short)
+                if ok:
+                    send_telegram_alert(token, chat_id, full)
+            if ok:
+                return True, "chart", ""
+            note = err2
+        else:
+            note = err
+    ok = send_telegram_alert(token, chat_id, full)
+    return ok, "text", note
+
+
 # ====================== STREAMLIT APP ======================
 # NOTE: everything ABOVE this line (scanner logic, rules, helpers) is unchanged.
 # Only the look / layout below was redesigned.  Recommended: streamlit>=1.39
@@ -1660,16 +1939,25 @@ if page == "dashboard":
             save_json(HISTORY_FILE, history)
 
             if settings.get("enable_telegram") and settings.get("telegram_token"):
-                for r in [x for x in results if x["score"] >= 85 or x.get("full_match")][:4]:
-                    msg = (
-                        f"🚨 <b>{r['symbol']}</b> | Score {r['score']}\n"
-                        f"{r['direction']} | Near {r.get('near_level','')}\n"
-                        f"Price {r['price']} | {timeframe}"
-                    )
-                    send_telegram_alert(
+                _alerts = [x for x in results if x["score"] >= 85 or x.get("full_match")]
+                _alerts = _alerts[: int(settings.get("telegram_max_alerts", 4))]
+                _rules_used = hns_rules if scanner_id == 2 else active_rules
+                _sent, _notes = 0, []
+                for r in _alerts:
+                    ok, mode, note = send_full_alert(
                         settings["telegram_token"],
                         settings.get("telegram_chat_id", ""),
-                        msg,
+                        r, scanner_id, market, timeframe, _rules_used,
+                        with_chart=bool(settings.get("telegram_send_chart", True)),
+                    )
+                    _sent += 1 if ok else 0
+                    if note:
+                        _notes.append(note)
+                    time.sleep(1.1)          # Telegram allows ~1 message / second per chat
+                if _alerts:
+                    status_slot.caption(
+                        f"Scan complete • 📨 {_sent}/{len(_alerts)} alert(s) sent"
+                        + (f" • {_notes[0]}" if _notes else "")
                     )
 
             if not results:
@@ -1875,168 +2163,4 @@ elif page == "rules":
             r["require_consolidation"] = st.checkbox("Consolidation before break", value=r.get("require_consolidation", True))
             r["require_volume_dry"] = st.checkbox("Volume drying before break", value=r.get("require_volume_dry", True))
             if st.button("💾 Save rules", type="primary", use_container_width=True, key="save_rules"):
-                scanners[scanner_name]["rules"] = r
-                save_json(SCANNERS_FILE, scanners)
-                st.session_state["rules_edit"] = False
-                st.success("Rules saved — no app update needed")
-                st.rerun()
-            if st.button("Cancel edit", use_container_width=True):
-                st.session_state["rules_edit"] = False
-                st.rerun()
-
-    with kc("panel_rules_profiles"):
-        st.markdown('<div class="ptitle">Scanner profiles</div>', unsafe_allow_html=True)
-        new_profile = st.text_input("New profile name", placeholder="My strict scanner")
-        if st.button("➕ Add profile (copy current rules)", use_container_width=True):
-            if new_profile and new_profile.strip():
-                name = new_profile.strip()
-                if name not in scanners:
-                    scanners[name] = {
-                        "description": f"Custom profile: {name}",
-                        "rules": dict(active_rules),
-                    }
-                    save_json(SCANNERS_FILE, scanners)
-                    st.success(f"Added profile {name}")
-                    st.rerun()
-                else:
-                    st.warning("Name already exists")
-            else:
-                st.warning("Enter a name")
-
-        for nm in list(scanners.keys()):
-            c1, c2 = st.columns([4, 1])
-            c1.write(f"• **{nm}**" + (" ← active" if nm == scanner_name else ""))
-            if c2.button("🗑", key=f"del_prof_{nm}"):
-                if len(scanners) <= 1:
-                    st.warning("Keep at least one profile")
-                else:
-                    del scanners[nm]
-                    save_json(SCANNERS_FILE, scanners)
-                    st.rerun()
-
-
-# ====================================================================
-#                               RESULTS
-# ====================================================================
-elif page == "results":
-    with kc("panel_res_head"):
-        page_title(
-            "Scan Results",
-            f"{st.session_state.get('last_scanner','Scanner 1 · Price Action')} • "
-            f"{st.session_state.get('last_market','')} • {st.session_state.get('last_tf','')} • "
-            f"{st.session_state.get('last_scan','—')}",
-        )
-        st.button("← Back to Dashboard", use_container_width=True, key="res_back",
-                  on_click=go_page, args=("dashboard",))
-
-    results = st.session_state.get("scan_results", [])
-    if not results:
-        st.info("No results yet. Run a scan first.")
-    else:
-        st.caption(f"{len(results)} setups")
-        for idx, res in enumerate(results):
-            st.markdown(result_card_html(res, detailed=True), unsafe_allow_html=True)
-            with st.expander(f"Chart • {res['symbol']}", expanded=(idx == 0)):
-                render_chart(res)
-
-
-# ====================================================================
-#                                ALERTS
-# ====================================================================
-elif page == "alerts":
-    with kc("panel_alerts_head"):
-        page_title("Alerts", "Get setups sent to your Telegram")
-
-    with kc("panel_alerts_body"):
-        enable_tg = st.toggle("Enable", value=settings.get("enable_telegram", False))
-        tg_token = st.text_input("Bot Token", value=settings.get("telegram_token", ""), type="password")
-        tg_chat = st.text_input("Chat ID", value=settings.get("telegram_chat_id", ""))
-        if st.button("Save Telegram", use_container_width=True):
-            settings["enable_telegram"] = enable_tg
-            settings["telegram_token"] = tg_token
-            settings["telegram_chat_id"] = tg_chat
-            save_json(SETTINGS_FILE, settings)
-            st.success("Saved")
-
-
-# ====================================================================
-#                                HISTORY
-# ====================================================================
-elif page == "history":
-    with kc("panel_hist_head"):
-        page_title("Scan History", "Your last 30 scans, newest first")
-
-    if not history:
-        st.info("No history yet.")
-    else:
-        for h in history:
-            chips = "".join(
-                f'<span class="chip">{s.replace(".NS", "").replace("-USD", "").replace("=X", "")}</span>'
-                for s in h.get("symbols", [])[:10]
-            )
-            if len(h.get("symbols", [])) > 10:
-                chips += '<span class="chip">…</span>'
-            top = f' • top score <b>{h.get("top_score")}</b>' if h.get("top_score") else ""
-            st.markdown(
-                f'<div class="card"><div style="font-weight:800;font-size:1.02rem;">{h.get("time","")}</div>'
-                f'<div style="color:#9aabc8;margin-top:0.25rem;font-size:0.9rem;">'
-                f'{h.get("scanner","Scanner 1 · Price Action")}<br>{h.get("market","")} • {h.get("timeframe","")} • <b>{h.get("count",0)}</b> setups{top}</div>'
-                f'<div style="margin-top:0.3rem;">{chips or "—"}</div></div>',
-                unsafe_allow_html=True,
-            )
-        if st.button("Clear history", use_container_width=True, key="clear_hist"):
-            save_json(HISTORY_FILE, [])
-            st.rerun()
-
-st.caption("PA Scanner • Mobile first • Chart-matched price action")
-
-# ====================================================================
-#                   BOTTOM NAV  (sits above "Manage app")
-# ====================================================================
-if MODERN:
-    NAV_ITEMS = [
-        ("dashboard", ":material/grid_view:", "Dashboard"),
-        ("rules", ":material/tune:", "Rules"),
-        ("results", ":material/query_stats:", ""),
-        ("alerts", ":material/notifications:", "Alerts"),
-        ("history", ":material/history:", "History"),
-    ]
-else:
-    NAV_ITEMS = [
-        ("dashboard", "▦", "Dashboard"),
-        ("rules", "📐", "Rules"),
-        ("results", "📊", ""),
-        ("alerts", "🔔", "Alerts"),
-        ("history", "🕒", "History"),
-    ]
-
-with kc("bottomnav"):
-    ncols = st.columns([1.05, 1, 0.95, 1, 1])
-    for col, (pid, icon, text) in zip(ncols, NAV_ITEMS):
-        with col:
-            label = f"{icon}  \n{text}" if text else icon
-            st.button(
-                label,
-                key=f"nav_{pid}",
-                use_container_width=True,
-                on_click=go_page,
-                args=(pid,),
-                help="Results" if pid == "results" else None,
-            )
-
-# highlight the active tab + live slider fill
-dyn_css += f".st-key-nav_{page} button {{ color: #69f0ae !important; text-shadow: 0 0 10px rgba(105,240,174,0.6); }}"
-st.markdown(f"<style>{dyn_css}</style>", unsafe_allow_html=True)
-
-# Soft poll for countdown / due auto (does not reset timer when visiting other pages)
-if page == "dashboard" and st.session_state.get("auto_refresh"):
-    nsa = st.session_state.get("next_scan_at")
-    if nsa is not None:
-        left = nsa - time.time()
-        if left <= 0:
-            st.session_state["force_scan"] = True
-            st.rerun()
-        else:
-            # update countdown about every 15s without restarting the full interval
-            time.sleep(min(15, max(1, left)))
-            st.rerun()
+                scanners[scanner_name]["rules"
