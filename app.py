@@ -492,6 +492,10 @@ def go_page(p):
     st.session_state["page"] = p
 
 
+def set_market(m):
+    st.session_state["market"] = m
+
+
 def toggle_theme():
     st.session_state["theme"] = "light" if st.session_state.get("theme") == "dark" else "dark"
 
@@ -541,6 +545,7 @@ html, body { font-size: 15.5px !important; }
 .st-key-bottomnav [data-testid="stHorizontalBlock"] {
   flex-wrap: nowrap !important; align-items: center !important; gap: 0.5rem !important;
 }
+.st-key-bottomnav [data-testid="stHorizontalBlock"] { gap: 0.1rem !important; }
 .st-key-hdr [data-testid="stColumn"], .st-key-hdr [data-testid="column"],
 .st-key-tf_row [data-testid="stColumn"], .st-key-tf_row [data-testid="column"],
 .st-key-ar_row [data-testid="stColumn"], .st-key-ar_row [data-testid="column"],
@@ -586,50 +591,23 @@ html, body { font-size: 15.5px !important; }
 }
 .page-sub { color: #90a4c8; font-size: 0.8rem; margin-top: -0.1rem; }
 
-/* ---------- market pills (Stocks / Crypto / Forex) ---------- */
-.st-key-market_wrap div[role="radiogroup"] {
-  display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important;
-  gap: 0.5rem !important; width: 100% !important;
+/* ---------- market pills (Stocks / Crypto / Forex) : full width, big ---------- */
+.st-key-market_wrap [data-testid="stHorizontalBlock"] {
+  flex-wrap: nowrap !important; gap: 0.55rem !important; width: 100% !important;
 }
-.st-key-market_wrap div[role="radiogroup"] > label {
-  flex: 1 1 0 !important; margin: 0 !important; justify-content: center !important;
-  padding: 0.8rem 0.2rem !important; border-radius: 22px !important;
-  background: rgba(18,14,40,0.85) !important; border: 1.5px solid rgba(255,255,255,0.15) !important;
+.st-key-market_wrap [data-testid="stColumn"], .st-key-market_wrap [data-testid="column"] { min-width: 0 !important; }
+.st-key-market_wrap.st-key-market_wrap button {
+  min-height: 4.3rem !important; border-radius: 24px !important; padding: 0 0.2rem !important;
+  background: rgba(18,14,40,0.85) !important; border: 2px solid rgba(255,255,255,0.18) !important;
   transition: all 0.25s ease;
+  opacity: 0.42; filter: blur(1.3px) saturate(0.55); transform: scale(0.96);   /* not selected = faded */
 }
-/* hide the little radio circle */
-.st-key-market_wrap div[role="radiogroup"] > label > div:first-child:not(:has([data-testid="stMarkdownContainer"])) {
-  display: none !important;
+.st-key-market_wrap.st-key-market_wrap button p {
+  font-size: 1.3rem !important; font-weight: 800 !important; margin: 0 !important; white-space: nowrap;
 }
-.st-key-market_wrap div[role="radiogroup"] > label p {
-  font-size: 1rem !important; font-weight: 800 !important; margin: 0 !important; text-align: center;
-}
-/* not selected -> faded + blurred */
-.st-key-market_wrap div[role="radiogroup"] > label:not(:has(input:checked)) {
-  opacity: 0.42; filter: blur(1.3px) saturate(0.55); transform: scale(0.96);
-}
-/* selected -> bright + glow */
-.st-key-market_wrap div[role="radiogroup"] > label:has(input:checked) {
-  opacity: 1; filter: none; transform: scale(1.04);
-}
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(1) { border-color: rgba(0,230,118,0.55) !important; }
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(2) { border-color: rgba(224,64,251,0.55) !important; }
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(3) { border-color: rgba(0,176,255,0.55) !important; }
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(1):has(input:checked) {
-  background: rgba(0,60,40,0.65) !important; border-color: #00e676 !important;
-  box-shadow: 0 0 22px rgba(0,230,118,0.55), inset 0 0 14px rgba(0,230,118,0.18) !important;
-}
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(1):has(input:checked) p { color: #69f0ae !important; }
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(2):has(input:checked) {
-  background: rgba(70,12,80,0.65) !important; border-color: #e040fb !important;
-  box-shadow: 0 0 22px rgba(224,64,251,0.55), inset 0 0 14px rgba(224,64,251,0.18) !important;
-}
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(2):has(input:checked) p { color: #ea80fc !important; }
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(3):has(input:checked) {
-  background: rgba(10,34,80,0.65) !important; border-color: #00b0ff !important;
-  box-shadow: 0 0 22px rgba(0,176,255,0.55), inset 0 0 14px rgba(0,176,255,0.18) !important;
-}
-.st-key-market_wrap div[role="radiogroup"] > label:nth-child(3):has(input:checked) p { color: #80d8ff !important; }
+.st-key-mk_stocks button { border-color: rgba(0,230,118,0.6) !important; color: #69f0ae !important; }
+.st-key-mk_crypto button { border-color: rgba(224,64,251,0.6) !important; color: #ea80fc !important; }
+.st-key-mk_forex  button { border-color: rgba(0,176,255,0.6) !important; color: #80d8ff !important; }
 
 /* ---------- timeframe / auto refresh labels ---------- */
 .lbl-tf {
@@ -691,51 +669,47 @@ html, body { font-size: 15.5px !important; }
 /* ---------- toggle ---------- */
 .stToggle label, [data-testid="stToggle"] label { color: #c5cae9 !important; font-weight: 700 !important; }
 
-/* ---------- progress line (same look as the score line) ---------- */
-.stProgress { height: 1.2rem !important; }
-.stProgress > div {
-  height: 1.2rem !important; border-radius: 999px !important; overflow: visible !important;
-  background: rgba(255,255,255,0.12) !important;
+/* ---------- progress line (single bar, same look as the score line) ---------- */
+.pbar-wrap { padding: 0.55rem 14px 0.2rem 14px; }
+.pbar { height: 12px; border-radius: 999px; background: rgba(255,255,255,0.14); position: relative; }
+.pfill {
+  height: 100%; border-radius: 999px; position: relative; transition: width 0.2s ease;
+  background: linear-gradient(90deg, #00e676 0%, #c6ff00 50%, #ffea00 78%, #ff9100 100%);
 }
-.stProgress > div > div {
-  height: 1.2rem !important; border-radius: 999px !important; overflow: visible !important;
-  background: linear-gradient(90deg, #00e676, #c6ff00, #ffea00, #ff9100) !important;
-  position: relative;
-}
-.stProgress > div > div::after {
-  content: ""; position: absolute; right: -4px; top: 50%; transform: translateY(-50%);
-  width: 26px; height: 26px; border-radius: 50%;
+.pknob {
+  position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #fff8d6 0%, #ffd54f 45%, #ff9100 100%);
   border: 2px solid rgba(255,255,255,0.75); box-shadow: 0 0 18px 5px rgba(255,193,7,0.6);
 }
 
 /* ---------- generic buttons ---------- */
-.stButton > button {
+:where(.stButton) > button {
   border-radius: 16px !important; font-weight: 800 !important;
   min-height: 2.9rem !important; font-size: 0.95rem !important; width: 100% !important;
   background: rgba(30,24,60,0.85) !important; color: #e8eaf6 !important;
   border: 1px solid rgba(140,100,255,0.4) !important;
 }
 
-/* ---------- SCAN NOW ---------- */
+/* ---------- SCAN NOW (elegant emerald / teal) ---------- */
 .st-key-scan_main.st-key-scan_main button {
-  position: relative; min-height: 4.8rem !important; border-radius: 30px !important;
-  background: linear-gradient(135deg, #00c853 0%, #64dd17 55%, #aeea00 100%) !important;
-  border: 1.5px solid rgba(185,246,202,0.95) !important;
-  box-shadow: 0 0 36px rgba(100,221,23,0.55), inset 0 2px 0 rgba(255,255,255,0.4),
-              inset 0 -6px 14px rgba(0,120,40,0.25) !important;
+  position: relative; min-height: 4.8rem !important; border-radius: 28px !important;
+  background: linear-gradient(135deg, #0b5d4e 0%, #0f8a72 50%, #1ab394 100%) !important;
+  border: 1px solid rgba(160,255,225,0.40) !important;
+  box-shadow: 0 10px 28px rgba(15,138,114,0.38), inset 0 1px 0 rgba(255,255,255,0.22),
+              inset 0 -8px 16px rgba(0,40,30,0.25) !important;
   color: #ffffff !important;
 }
 .st-key-scan_main.st-key-scan_main button p {
-  font-size: 2.1rem !important; font-weight: 900 !important; letter-spacing: 0.04em;
-  color: #ffffff !important; text-shadow: 0 2px 8px rgba(0,60,20,0.45);
-  padding-right: 3.4rem;
+  font-size: 1.9rem !important; font-weight: 700 !important; letter-spacing: 0.14em;
+  color: #ffffff !important; text-shadow: 0 1px 6px rgba(0,30,20,0.35);
+  padding-right: 3.4rem; margin: 0 !important;
 }
 .st-key-scan_main.st-key-scan_main button::after {
-  content: "🎯"; position: absolute; right: 18px; top: 50%; transform: translateY(-50%);
-  width: 54px; height: 54px; border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.6); background: rgba(255,255,255,0.18);
-  display: flex; align-items: center; justify-content: center; font-size: 1.7rem;
+  content: ""; position: absolute; right: 18px; top: 50%; transform: translateY(-50%);
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.10) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><circle cx='12' cy='12' r='5'/><circle cx='12' cy='12' r='1.3' fill='white'/></svg>") center / 58% no-repeat;
 }
 .st-key-refresh_now button {
   min-height: 2.3rem !important; font-size: 0.82rem !important; border-radius: 14px !important;
@@ -804,33 +778,33 @@ html, body { font-size: 15.5px !important; }
 .st-key-bottomnav {
   position: fixed !important; left: 50%; transform: translateX(-50%);
   bottom: calc(66px + env(safe-area-inset-bottom, 0px));   /* <-- raise / lower the nav here */
-  width: min(412px, calc(100vw - 18px)) !important; z-index: 1000;
+  width: min(430px, calc(100vw - 12px)) !important; z-index: 1000;
   box-sizing: border-box;
   background: linear-gradient(180deg, rgba(24,32,78,0.92), rgba(10,14,36,0.97));
   border: 1px solid rgba(124,77,255,0.38); border-radius: 32px;
-  padding: 0.4rem 0.35rem !important;
+  padding: 0.45rem 0.25rem !important;
   backdrop-filter: blur(18px);
   box-shadow: 0 10px 30px rgba(0,0,0,0.55), 0 0 26px rgba(0,230,118,0.12);
 }
 .st-key-bottomnav .stButton > button, .st-key-bottomnav button {
   background: transparent !important; border: none !important; box-shadow: none !important;
-  color: #8a9bb8 !important; min-height: 3.5rem !important; padding: 0.1rem 0 !important;
+  color: #a9b8d6 !important; min-height: 4.3rem !important; padding: 0.1rem 0 !important;
   border-radius: 18px !important;
 }
 .st-key-bottomnav button p {
-  font-size: 0.68rem !important; font-weight: 700 !important; line-height: 1.2 !important;
-  text-align: center; margin: 0 !important; color: inherit !important;
+  font-size: 0.9rem !important; font-weight: 700 !important; line-height: 1.25 !important;
+  text-align: center; margin: 0 !important; color: inherit !important; white-space: nowrap;
 }
-.st-key-bottomnav [data-testid="stIconMaterial"] { font-size: 1.55rem !important; }
+.st-key-bottomnav [data-testid="stIconMaterial"] { font-size: 2.2rem !important; }
 .st-key-bottomnav .stButton { display: flex; justify-content: center; }
 .st-key-nav_results button {
-  width: 66px !important; height: 66px !important; min-height: 66px !important;
-  border-radius: 50% !important; margin: -38px auto 0 auto !important;
+  width: 76px !important; height: 76px !important; min-height: 76px !important;
+  border-radius: 50% !important; margin: -44px auto 0 auto !important;
   background: radial-gradient(circle at 30% 28%, #3ddc97 0%, #0a5d3b 72%) !important;
   border: 3px solid #69f0ae !important; color: #ffffff !important;
   box-shadow: 0 0 28px rgba(0,230,118,0.65), 0 6px 14px rgba(0,0,0,0.4) !important;
 }
-.st-key-nav_results [data-testid="stIconMaterial"] { font-size: 2rem !important; }
+.st-key-nav_results [data-testid="stIconMaterial"] { font-size: 2.6rem !important; }
 
 @media (max-width: 640px) {
   .block-container { max-width: 100% !important; }
@@ -864,6 +838,12 @@ def fmt_price(p):
     if p is None:
         return "—"
     return f"{p:,.4f}" if p < 10 else f"{p:,.2f}"
+
+
+def progress_html(frac):
+    pct = int(max(0.0, min(1.0, float(frac))) * 100)
+    return (f'<div class="pbar-wrap"><div class="pbar"><div class="pfill" style="width:{pct}%">'
+            f'<span class="pknob"></span></div></div></div>')
 
 
 def page_title(title, sub=""):
@@ -1038,25 +1018,27 @@ with kc("hdr"):
 if page == "dashboard":
 
     # ---------- Market selector (selected one glows, other two fade/blur) ----------
-    _mopts = ["Indian Stocks", "Crypto", "Forex"]
-    _mlabels = {"Indian Stocks": "📈 Stocks", "Crypto": "₿ Crypto", "Forex": "💱 Forex"}
-    try:
-        cur_i = _mopts.index(st.session_state.get("market", "Indian Stocks"))
-    except ValueError:
-        cur_i = 0
-
+    market = st.session_state.get("market", "Indian Stocks")
+    if market not in MARKET_ORDER:
+        market = "Indian Stocks"
+    MARKET_BTNS = [
+        ("Indian Stocks", "📈 Stocks", "mk_stocks"),
+        ("Crypto", "₿ Crypto", "mk_crypto"),
+        ("Forex", "💱 Forex", "mk_forex"),
+    ]
     with kc("market_wrap"):
-        picked = st.radio(
-            "Market",
-            options=_mopts,
-            index=cur_i,
-            format_func=lambda x: _mlabels.get(x, x),
-            horizontal=True,
-            label_visibility="collapsed",
-            key="market_radio",
-        )
-    st.session_state["market"] = picked
-    market = picked
+        mcols = st.columns(3)
+        for col, (m_name, m_label, m_key) in zip(mcols, MARKET_BTNS):
+            with col:
+                st.button(m_label, key=m_key, use_container_width=True, on_click=set_market, args=(m_name,))
+    _sel = {"Indian Stocks": ("mk_stocks", "rgba(0,60,40,0.7)", "#00e676", "rgba(0,230,118,0.55)"),
+            "Crypto": ("mk_crypto", "rgba(70,12,80,0.7)", "#e040fb", "rgba(224,64,251,0.55)"),
+            "Forex": ("mk_forex", "rgba(10,34,80,0.7)", "#00b0ff", "rgba(0,176,255,0.55)")}[market]
+    dyn_css += (
+        f".st-key-{_sel[0]} button {{ opacity: 1 !important; filter: none !important; transform: scale(1.04) !important; "
+        f"background: {_sel[1]} !important; border-color: {_sel[2]} !important; "
+        f"box-shadow: 0 0 24px {_sel[3]}, inset 0 0 14px {_sel[3]} !important; }}"
+    )
     current_list = watchlists.get(market, [])
 
     # ---------- Scan panel ----------
@@ -1137,7 +1119,8 @@ if page == "dashboard":
         # Progress line ABOVE the scan button
         progress_slot = st.empty()
         status_slot = st.empty()
-        progress_slot.progress(0)
+        progress_slot.markdown(progress_html(0), unsafe_allow_html=True)
+        st.markdown('<div style="height:0.6rem"></div>', unsafe_allow_html=True)
 
         run = st.button("SCAN NOW", type="primary", use_container_width=True, key="scan_main")
         if st.button("🔄 Refresh Now", use_container_width=True, key="refresh_now"):
@@ -1169,7 +1152,7 @@ if page == "dashboard":
                         pass
                     elif res["score"] >= min_score:
                         results.append(res)
-                progress_slot.progress((i + 1) / max(len(current_list), 1))
+                progress_slot.markdown(progress_html((i + 1) / max(len(current_list), 1)), unsafe_allow_html=True)
                 time.sleep(0.08)
             status_slot.caption("Scan complete")
 
@@ -1520,7 +1503,7 @@ else:
     ]
 
 with kc("bottomnav"):
-    ncols = st.columns([1, 1, 1.05, 1, 1])
+    ncols = st.columns([1.05, 1, 0.95, 1, 1])
     for col, (pid, icon, text) in zip(ncols, NAV_ITEMS):
         with col:
             label = f"{icon}  \n{text}" if text else icon
