@@ -807,6 +807,8 @@ def scan_hns(symbol, interval="15m", rules=None):
 # send_telegram_alert (text only) above is unchanged and is still used as the fallback.
 import io as _io
 import html as _html
+import threading as _th
+_CHART_LOCK = _th.Lock()
 
 
 def _pos_of(df, x_str):
@@ -1063,7 +1065,8 @@ def send_full_alert(token, chat_id, res, scanner_id, market, timeframe, rules, w
     full, short = build_alert_text(res, scanner_id, market, timeframe, rules)
     note = ""
     if with_chart:
-        png, err = make_alert_chart_png(res)
+        with _CHART_LOCK:
+            png, err = make_alert_chart_png(res)
         if png:
             if len(full) <= 1000:
                 ok, err2 = send_telegram_photo(token, chat_id, png, full)
@@ -1080,6 +1083,269 @@ def send_full_alert(token, chat_id, res, scanner_id, market, timeframe, rules, w
     return ok, "text", note
 
 
+
+
+# ====================== AUTO-SCAN ENGINE (all three sections, runs in the background) ======================
+# No Streamlit calls in here on purpose: a background thread uses this, so it keeps scanning
+# every section whose Auto Refresh is ON - whichever page / section you are looking at.
+import threading
+
+AUTO_CFG_FILE = os.path.join(DATA_DIR, "auto_config.json")
+SENT_FILE = os.path.join(DATA_DIR, "alerts_sent.json")
+AUTO_MARKETS = ["Indian Stocks", "Crypto", "Forex"]
+INTERVAL_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+SCANNER_LABELS = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders"}
+
+# defaults: timeframe 15m, auto-refresh interval 15m, auto refresh OFF until the user turns it on
+DEFAULT_MARKET_CFG = {
+    "timeframe": "15m",
+    "min_score": 60,
+    "full_only": False,
+    "auto_on": False,
+    "interval": "15m",
+    "scanner": 1,
+}
+
+_DISPATCH_LOCK = threading.Lock()
+_CHART_LOCK = threading.Lock()
+
+
+def save_json_atomic(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+def settings_snapshot():
+    s = dict(DEFAULT_SETTINGS)
+    s.update(load_json(SETTINGS_FILE, {}))
+    return s
+
+
+class AutoState:
+    """Shared by every browser session (created once per server process)."""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.cfg = {}
+        raw = load_json(AUTO_CFG_FILE, {})
+        for m in AUTO_MARKETS:
+            c = dict(DEFAULT_MARKET_CFG)
+            part = raw.get(m, {}) if isinstance(raw, dict) else {}
+            if isinstance(part, dict):
+                c.update({k: v for k, v in part.items() if k in DEFAULT_MARKET_CFG})
+            self.cfg[m] = c
+        self.results = {}     # market -> {"results": [...], "time", "tf", "scanner", "source", "at"}
+        self.next_run = {}    # market -> epoch seconds
+        self.last_run = {}
+        self.busy = {}
+        self.errors = {}
+        self.thread = None
+        now = time.time()
+        for m in AUTO_MARKETS:
+            if self.cfg[m]["auto_on"]:
+                self.next_run[m] = now + self._secs(m)
+
+    def _secs(self, m):
+        return INTERVAL_MINUTES.get(self.cfg[m].get("interval", "15m"), 15) * 60
+
+    def get(self, m):
+        with self.lock:
+            return dict(self.cfg.get(m, DEFAULT_MARKET_CFG))
+
+    def update(self, m, **kw):
+        """Change settings of one section. Starts / stops its timer when needed."""
+        with self.lock:
+            c = self.cfg[m]
+            changed = {}
+            for k, v in kw.items():
+                if k in DEFAULT_MARKET_CFG and c.get(k) != v:
+                    c[k] = v
+                    changed[k] = v
+            if not changed:
+                return
+            if "auto_on" in changed or "interval" in changed:
+                if c["auto_on"]:
+                    self.next_run[m] = time.time() + self._secs(m)      # timer starts now
+                else:
+                    self.next_run.pop(m, None)
+            try:
+                save_json_atomic(AUTO_CFG_FILE, self.cfg)
+            except Exception:
+                pass
+
+    def seconds_left(self, m):
+        with self.lock:
+            nr = self.next_run.get(m)
+        return None if nr is None else int(nr - time.time())
+
+    def set_results(self, m, results, tf, scanner, source):
+        with self.lock:
+            self.results[m] = {
+                "results": results, "time": datetime.now().strftime("%H:%M"), "tf": tf,
+                "scanner": scanner, "source": source, "at": time.time(),
+            }
+
+    def get_results(self, m):
+        with self.lock:
+            return self.results.get(m)
+
+    def latest_any(self):
+        with self.lock:
+            if not self.results:
+                return None, None
+            m = max(self.results, key=lambda k: self.results[k]["at"])
+            return m, self.results[m]
+
+
+def core_scan(market, cfg, progress=None):
+    """The scan loop (same rules / scoring as always). Used by SCAN NOW and by the auto engine.
+    Returns (results, rules_used)."""
+    wl = load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS).get(market, [])
+    sc = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
+    nm = list(sc.keys())[0] if sc else "My Price Action Scanner"
+    rules1 = sc.get(nm, DEFAULT_SCANNERS["My Price Action Scanner"])["rules"]
+    hns = dict(DEFAULT_HNS_RULES)
+    hns.update(load_json(HNS_FILE, {}))
+
+    tf = cfg["timeframe"]
+    results = []
+    n = len(wl)
+    for i, sym in enumerate(wl):
+        if progress:
+            progress("start", i, n, sym)
+        if cfg.get("scanner") == 2:
+            res = scan_hns(sym, interval=tf, rules=hns)
+        else:
+            res = scan_symbol(sym, interval=tf, rules=rules1)
+        if res:
+            if cfg.get("full_only") and not res.get("full_match"):
+                pass
+            elif res["score"] >= cfg.get("min_score", 60):
+                results.append(res)
+        if progress:
+            progress("done", i, n, sym)
+        time.sleep(0.08)
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    return results, (hns if cfg.get("scanner") == 2 else rules1)
+
+
+def record_history(market, tf, scanner, results):
+    try:
+        hist = load_json(HISTORY_FILE, [])
+        entry = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "market": market,
+            "timeframe": tf,
+            "scanner": SCANNER_LABELS.get(scanner, ""),
+            "count": len(results),
+            "symbols": [x["symbol"] for x in results[:15]],
+            "top_score": results[0]["score"] if results else 0,
+        }
+        save_json_atomic(HISTORY_FILE, ([entry] + hist)[:30])
+    except Exception:
+        pass
+
+
+def dispatch_alerts(results, scanner_id, market, timeframe, rules):
+    """Telegram alert (chart + full details) for every NEW result. A setup that was already
+    alerted (same symbol / timeframe / signal candle) is not sent again.
+    Returns (sent, already_sent, notes)."""
+    s = settings_snapshot()
+    if not (s.get("enable_telegram") and s.get("telegram_token") and s.get("telegram_chat_id")):
+        return 0, 0, ["telegram alerts are off"]
+    with _DISPATCH_LOCK:
+        log = load_json(SENT_FILE, {})
+        cutoff = time.time() - 3 * 86400
+        log = {k: v for k, v in log.items() if v >= cutoff}
+        min_sc = int(s.get("telegram_min_score", 0))
+        cap = int(s.get("telegram_max_alerts", 4))
+        sent = skipped = fails = 0
+        notes = []
+        for r in results:
+            if r.get("score", 0) < min_sc:
+                continue
+            key = f"{scanner_id}|{market}|{r.get('symbol')}|{timeframe}|{r.get('setup_time_ist')}"
+            if key in log:
+                skipped += 1
+                continue
+            if sent >= cap or fails >= 3:
+                break
+            ok, mode, note = send_full_alert(
+                s["telegram_token"], s["telegram_chat_id"], r, scanner_id, market, timeframe, rules,
+                with_chart=bool(s.get("telegram_send_chart", True)),
+            )
+            if ok:
+                log[key] = time.time()
+                sent += 1
+                fails = 0
+            else:
+                fails += 1
+            if note:
+                notes.append(note)
+            time.sleep(1.1)          # Telegram: about 1 message / second per chat
+        try:
+            save_json_atomic(SENT_FILE, log)
+        except Exception:
+            pass
+    return sent, skipped, notes
+
+
+def run_market_job(state, market):
+    """One full automatic scan of a section + automatic Telegram alerts."""
+    cfg = state.get(market)
+    results, rules = core_scan(market, cfg)
+    state.set_results(market, results, cfg["timeframe"], cfg["scanner"], "auto")
+    if results:
+        record_history(market, cfg["timeframe"], cfg["scanner"], results)
+    dispatch_alerts(results, cfg["scanner"], market, cfg["timeframe"], rules)
+
+
+def scheduler_loop(state):
+    """Runs for the life of the server: scans every section whose timer is due."""
+    while True:
+        try:
+            for m in AUTO_MARKETS:
+                with state.lock:
+                    nr = state.next_run.get(m)
+                    due = bool(state.cfg[m]["auto_on"] and nr is not None
+                               and time.time() >= nr and not state.busy.get(m))
+                if not due:
+                    continue
+                state.busy[m] = True
+                try:
+                    run_market_job(state, m)
+                    state.errors.pop(m, None)
+                except Exception as e:
+                    state.errors[m] = str(e)[:120]
+                finally:
+                    state.busy[m] = False
+                    with state.lock:
+                        state.last_run[m] = time.time()
+                        if state.cfg[m]["auto_on"]:
+                            state.next_run[m] = time.time() + state._secs(m)
+        except Exception:
+            pass
+        time.sleep(3)
+
+
+def start_scheduler(state):
+    """Start the background thread once (safe to call on every rerun)."""
+    with state.lock:
+        if state.thread is None or not state.thread.is_alive():
+            t = threading.Thread(target=scheduler_loop, args=(state,), daemon=True, name="pa-scheduler")
+            state.thread = t
+            t.start()
+
+
+def dispatch_in_background(results, scanner_id, market, timeframe, rules):
+    """Used by SCAN NOW so the screen does not wait for Telegram."""
+    t = threading.Thread(target=dispatch_alerts, args=(list(results), scanner_id, market, timeframe, rules),
+                         daemon=True, name="pa-alerts")
+    t.start()
+
+
 # ====================== STREAMLIT APP ======================
 # NOTE: everything ABOVE this line (scanner logic, rules, helpers) is unchanged.
 # Only the look / layout below was redesigned.  Recommended: streamlit>=1.39
@@ -1094,8 +1360,21 @@ if "theme" not in st.session_state:
     st.session_state["theme"] = "dark"
 if "page" not in st.session_state:
     st.session_state["page"] = "dashboard"   # dashboard | rules | results | alerts | history
-if "scanner" not in st.session_state:
-    st.session_state["scanner"] = 1          # 1 = Price Action, 2 = Head & Shoulders
+import streamlit.components.v1 as components
+
+
+@st.cache_resource
+def get_auto_state():
+    return AutoState()          # one shared engine for every browser session
+
+
+AUTO = get_auto_state()
+start_scheduler(AUTO)           # background auto-scan thread (Stocks + Crypto + Forex)
+
+if "market" not in st.session_state:
+    st.session_state["market"] = "Indian Stocks"
+if "scanner" not in st.session_state:           # 1 = Price Action, 2 = Head & Shoulders
+    st.session_state["scanner"] = AUTO.get(st.session_state["market"])["scanner"]
 
 is_dark = st.session_state["theme"] == "dark"
 
@@ -1115,15 +1394,30 @@ def kc(key):
 
 
 def go_page(p):
+    """Open a page. Opening the Dashboard always returns to the clean home screen."""
     st.session_state["page"] = p
+    st.session_state["_goto_n"] = st.session_state.get("_goto_n", 0) + 1     # triggers scroll-to-top
+    if p == "dashboard":
+        st.session_state["show_add"] = False
+        st.session_state["show_watchlist"] = False
+        st.session_state["rules_edit"] = False
+        st.session_state["scanner"] = AUTO.get(st.session_state.get("market", "Indian Stocks"))["scanner"]
 
 
 def set_scanner(n):
+    """Dashboard picker: remembered for the selected section (also used by its auto scan)."""
+    st.session_state["scanner"] = n
+    AUTO.update(st.session_state.get("market", "Indian Stocks"), scanner=n)
+
+
+def set_scanner_view(n):
+    """Rules page picker: only chooses which scanner's rules you are looking at."""
     st.session_state["scanner"] = n
 
 
 def set_market(m):
     st.session_state["market"] = m
+    st.session_state["scanner"] = AUTO.get(m)["scanner"]
 
 
 def toggle_theme():
@@ -1256,6 +1550,24 @@ html, body { font-size: 15.5px !important; }
 }
 .st-key-sc_1.st-key-sc_1 button { border-color: rgba(0,229,255,0.65) !important; color: #80deea !important; }
 .st-key-sc_2.st-key-sc_2 button { border-color: rgba(255,179,0,0.70) !important; color: #ffd54f !important; }
+
+/* ---------- clickable title + extra side-by-side rows ---------- */
+.st-key-hdr_title.st-key-hdr_title button {
+  background: transparent !important; border: none !important; box-shadow: none !important;
+  min-height: 3rem !important; padding: 0 !important;
+}
+.st-key-hdr_title.st-key-hdr_title button p {
+  margin: 0 !important; font-size: 1.75rem !important; font-weight: 900 !important; font-style: italic;
+  letter-spacing: -0.4px; line-height: 1.2 !important;
+  background: linear-gradient(90deg, #00e5ff, #00e676, #ffea00);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 16px #00e5ff55);
+}
+.st-key-ar_sw_row [data-testid="stHorizontalBlock"], .st-key-panel_auto_all [data-testid="stHorizontalBlock"] {
+  flex-wrap: nowrap !important; align-items: center !important; gap: 0.5rem !important;
+}
+.st-key-ar_sw_row [data-testid="stColumn"], .st-key-ar_sw_row [data-testid="column"],
+.st-key-panel_auto_all [data-testid="stColumn"], .st-key-panel_auto_all [data-testid="column"] { min-width: 0 !important; }
 
 /* ---------- timeframe / auto refresh labels ---------- */
 .lbl-tf {
@@ -1494,20 +1806,132 @@ SCANNER_BTNS = [
 ]
 
 
-def scanner_picker():
+def scanner_picker(persist=True):
     """Two big buttons (same style as Stocks/Crypto/Forex). Returns the CSS that highlights the active one."""
     cur = st.session_state.get("scanner", 1)
     with kc("scanner_wrap"):
         cols = st.columns(2)
         for col, (sid, label, key, _bg, _bd, _gl) in zip(cols, SCANNER_BTNS):
             with col:
-                st.button(label, key=key, use_container_width=True, on_click=set_scanner, args=(sid,))
+                st.button(label, key=key, use_container_width=True,
+                          on_click=(set_scanner if persist else set_scanner_view), args=(sid,))
     _, _, key, bg, bd, gl = [b for b in SCANNER_BTNS if b[0] == cur][0]
     return (
         f".st-key-{key}.st-key-{key} button {{ opacity: 1 !important; filter: none !important; "
         f"transform: scale(1.03) !important; background: {bg} !important; border-color: {bd} !important; "
         f"box-shadow: 0 0 22px {gl}, inset 0 0 12px {gl} !important; }}"
     )
+
+
+MARKET_BTNS = [
+    ("Indian Stocks", "📈 Stocks", "mk_stocks"),
+    ("Crypto", "₿ Crypto", "mk_crypto"),
+    ("Forex", "💱 Forex", "mk_forex"),
+]
+_MARKET_SEL = {
+    "Indian Stocks": ("mk_stocks", "rgba(0,60,40,0.7)", "#00e676", "rgba(0,230,118,0.55)"),
+    "Crypto": ("mk_crypto", "rgba(70,12,80,0.7)", "#e040fb", "rgba(224,64,251,0.55)"),
+    "Forex": ("mk_forex", "rgba(10,34,80,0.7)", "#00b0ff", "rgba(0,176,255,0.55)"),
+}
+
+
+def market_picker():
+    """Stocks / Crypto / Forex big buttons. Returns the CSS that highlights the selected one."""
+    market = st.session_state.get("market", "Indian Stocks")
+    if market not in _MARKET_SEL:
+        market = "Indian Stocks"
+    with kc("market_wrap"):
+        mcols = st.columns(3)
+        for col, (m_name, m_label, m_key) in zip(mcols, MARKET_BTNS):
+            with col:
+                st.button(m_label, key=m_key, use_container_width=True, on_click=set_market, args=(m_name,))
+    k, bg, bd, gl = _MARKET_SEL[market]
+    return (
+        f".st-key-{k} button {{ opacity: 1 !important; filter: none !important; transform: scale(1.04) !important; "
+        f"background: {bg} !important; border-color: {bd} !important; "
+        f"box-shadow: 0 0 24px {gl}, inset 0 0 14px {gl} !important; }}"
+    )
+
+
+_TIMER_JS = """<div style="font-family:system-ui,sans-serif;font-weight:700;font-size:15px;color:#69f0ae;
+white-space:nowrap;padding-top:4px;">&#9203; Next scan in <span id="t">--:--</span></div>
+<script>var T=__T__;function f(){var s=Math.max(0,Math.round((T-Date.now())/1000));
+var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;
+document.getElementById("t").textContent=(h?h+"h ":"")+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0");}
+f();setInterval(f,1000);</script>"""
+
+
+def _auto_timer(market):
+    """Live countdown. Only runs while Auto refresh is ON for this section."""
+    c = AUTO.get(market)
+    left = AUTO.seconds_left(market)
+    if not c["auto_on"] or left is None:
+        st.caption("⏱ Timer off")
+    elif AUTO.busy.get(market):
+        st.caption("⏳ Scanning now…")
+    else:
+        components.html(_TIMER_JS.replace("__T__", str(int((time.time() + max(left, 0)) * 1000))), height=32)
+    err = AUTO.errors.get(market)
+    if err:
+        st.caption(f"⚠ last auto scan failed: {err}")
+
+
+def _dash_results(market):
+    """Latest results of this section (manual or automatic scan). Refreshes by itself."""
+    entry = AUTO.get_results(market)
+    if not entry:
+        return
+    results = entry["results"]
+    with kc("panel_dash_results"):
+        st.markdown(
+            f'<div class="ptitle">Results • {SCANNER_LABELS.get(entry["scanner"], "")[:9]} • '
+            f'{MARKET_LABEL_SHORT.get(market, market)} • {entry["tf"]} • {entry["time"]} • {entry["source"]}</div>',
+            unsafe_allow_html=True,
+        )
+        if not results:
+            st.caption("No setups found on last scan.")
+        else:
+            st.caption(f"{len(results)} setup(s) found — tap the centre button for charts")
+            for res in results:
+                st.markdown(result_card_html(res, detailed=False), unsafe_allow_html=True)
+
+
+def _wrap_fragment(fn, every):
+    frag = getattr(st, "fragment", None)
+    if frag is None:
+        return fn
+    try:
+        return frag(run_every=every)(fn)
+    except Exception:
+        return fn
+
+
+auto_timer = _wrap_fragment(_auto_timer, 10)
+dash_results = _wrap_fragment(_dash_results, 10)
+
+
+def _save_tg(key, wkey):
+    """Alert settings are saved the moment you change them and stay until you change them again."""
+    snap = settings_snapshot()
+    v = st.session_state.get(wkey)
+    if key in ("telegram_max_alerts", "telegram_min_score"):
+        v = int(v)
+    elif key in ("enable_telegram", "telegram_send_chart"):
+        v = bool(v)
+    elif isinstance(v, str):
+        v = v.strip()
+    snap[key] = v
+    save_json_atomic(SETTINGS_FILE, snap)
+
+
+def _set_auto_on(m):
+    AUTO.update(m, auto_on=bool(st.session_state.get(f"all_on_{m}")))
+
+
+def _all_auto(flag):
+    for m in AUTO_MARKETS:
+        AUTO.update(m, auto_on=flag)
+        st.session_state.pop(f"all_on_{m}", None)
 
 
 def progress_html(frac):
@@ -1697,7 +2121,31 @@ def reset_hns_rules():
 # ====================== DATA ======================
 watchlists = load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS)
 scanners = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
-settings = load_json(SETTINGS_FILE, DEFAULT_SETTINGS)
+_raw_settings = load_json(SETTINGS_FILE, {})
+settings = dict(DEFAULT_SETTINGS)
+settings.update(_raw_settings)
+# Optional: keep Telegram details in Streamlit "Secrets" so they survive an app reboot
+_changed = False
+for _k, _sk in (("telegram_token", "TELEGRAM_TOKEN"), ("telegram_chat_id", "TELEGRAM_CHAT_ID")):
+    try:
+        _v = st.secrets.get(_sk)
+    except Exception:
+        _v = None
+    if _v and not settings.get(_k):
+        settings[_k] = str(_v)
+        _changed = True
+try:
+    _en = st.secrets.get("TELEGRAM_ENABLED")
+except Exception:
+    _en = None
+if _en is not None and "enable_telegram" not in _raw_settings:
+    settings["enable_telegram"] = bool(_en)
+    _changed = True
+if _changed:
+    try:
+        save_json_atomic(SETTINGS_FILE, settings)
+    except Exception:
+        pass
 history = load_json(HISTORY_FILE, [])
 hns_rules = dict(DEFAULT_HNS_RULES)
 hns_rules.update(load_json(HNS_FILE, {}))
@@ -1755,7 +2203,7 @@ with kc("hdr"):
     with h1:
         st.button("☰", key="hdr_menu", use_container_width=True, on_click=go_page, args=("alerts",))
     with h2:
-        st.markdown('<div class="app-title">PA Scanner</div>', unsafe_allow_html=True)
+        st.button("PA Scanner", key="hdr_title", use_container_width=True, on_click=go_page, args=("dashboard",))
     with h3:
         st.button("☀️" if is_dark else "🌙", key="theme_toggle", use_container_width=True, on_click=toggle_theme)
 
@@ -1765,42 +2213,25 @@ with kc("hdr"):
 # ====================================================================
 if page == "dashboard":
 
-    # ---------- Market selector (selected one glows, other two fade/blur) ----------
+    # ---------- Market selector (selected glows, others fade) + Scanner picker ----------
+    dyn_css += market_picker()
     market = st.session_state.get("market", "Indian Stocks")
     if market not in MARKET_ORDER:
         market = "Indian Stocks"
-    MARKET_BTNS = [
-        ("Indian Stocks", "📈 Stocks", "mk_stocks"),
-        ("Crypto", "₿ Crypto", "mk_crypto"),
-        ("Forex", "💱 Forex", "mk_forex"),
-    ]
-    with kc("market_wrap"):
-        mcols = st.columns(3)
-        for col, (m_name, m_label, m_key) in zip(mcols, MARKET_BTNS):
-            with col:
-                st.button(m_label, key=m_key, use_container_width=True, on_click=set_market, args=(m_name,))
-    _sel = {"Indian Stocks": ("mk_stocks", "rgba(0,60,40,0.7)", "#00e676", "rgba(0,230,118,0.55)"),
-            "Crypto": ("mk_crypto", "rgba(70,12,80,0.7)", "#e040fb", "rgba(224,64,251,0.55)"),
-            "Forex": ("mk_forex", "rgba(10,34,80,0.7)", "#00b0ff", "rgba(0,176,255,0.55)")}[market]
-    dyn_css += (
-        f".st-key-{_sel[0]} button {{ opacity: 1 !important; filter: none !important; transform: scale(1.04) !important; "
-        f"background: {_sel[1]} !important; border-color: {_sel[2]} !important; "
-        f"box-shadow: 0 0 24px {_sel[3]}, inset 0 0 14px {_sel[3]} !important; }}"
-    )
-    dyn_css += scanner_picker()      # Scanner 1 / Scanner 2 (just below Stocks / Crypto / Forex)
+    dyn_css += scanner_picker()
+    scanner_id = st.session_state.get("scanner", 1)
+    cfg = AUTO.get(market)                 # remembered settings of this section (defaults: 15m / 15m)
     current_list = watchlists.get(market, [])
 
     # ---------- Scan panel ----------
     with kc("panel_scan"):
-        # Timeframe  (big colourful label, dropdown next to it)
+        # Timeframe  (big colourful label, dropdown next to it) - default 15m
         with kc("tf_row"):
             c1, c2 = st.columns([1.2, 1])
             with c1:
                 st.markdown('<div class="lbl-tf">⏱ Timeframe</div>', unsafe_allow_html=True)
             with c2:
-                tf_default = st.session_state.get(f"ui_tf_{market}", "5m")
-                if tf_default not in TF_OPTIONS:
-                    tf_default = "5m"
+                tf_default = cfg["timeframe"] if cfg["timeframe"] in TF_OPTIONS else "15m"
                 timeframe = st.selectbox(
                     "Timeframe",
                     TF_OPTIONS,
@@ -1808,13 +2239,12 @@ if page == "dashboard":
                     key=f"tf_{market}",
                     label_visibility="collapsed",
                 )
-                st.session_state[f"ui_tf_{market}"] = timeframe
 
         if scanner_id == 2 and timeframe in ("1m", "3m", "5m"):
             st.caption("⚠ Head & Shoulders is mostly noise on small timeframes — 15m or higher works best.")
 
         # Min score
-        score_default = int(st.session_state.get(f"ui_score_{market}", 60))
+        score_default = int(cfg["min_score"])
         score_now = int(st.session_state.get(f"score_{market}", score_default))
         st.markdown(
             f'<div class="ms-row"><span class="lbl-ms">Min Score '
@@ -1823,7 +2253,6 @@ if page == "dashboard":
             unsafe_allow_html=True,
         )
         min_score = st.slider("Min Score", 0, 100, score_default, 5, key=f"score_{market}", label_visibility="collapsed")
-        st.session_state[f"ui_score_{market}"] = min_score
         _p = max(0, min(100, int(min_score)))
         dyn_css += (
             '[data-testid="stSlider"] div[data-baseweb="slider"] > div:first-child > div:first-child, '
@@ -1832,41 +2261,39 @@ if page == "dashboard":
             f'#ff9100 {_p}%, rgba(255,255,255,0.14) {_p}%, rgba(255,255,255,0.14) 100%) !important; }}'
         )
 
-        only_full = st.toggle(
-            "Full Matches Only",
-            value=bool(st.session_state.get(f"ui_full_{market}", False)),
-            key=f"full_{market}",
-        )
-        st.session_state[f"ui_full_{market}"] = only_full
+        only_full = st.toggle("Full Matches Only", value=bool(cfg["full_only"]), key=f"full_{market}")
 
-        # Auto refresh (same options as timeframe, slightly smaller)
+        # Auto refresh: interval (default 15m) + ON/OFF button + live timer
         with kc("ar_row"):
             a1, a2 = st.columns([1.2, 1])
             with a1:
                 st.markdown('<div class="lbl-ar">⟳ Auto Refresh</div>', unsafe_allow_html=True)
             with a2:
-                ar_default = st.session_state.get("ui_ar", "Off")
-                if ar_default not in AR_OPTIONS:
-                    ar_default = "Off"
-                ar_choice = st.selectbox(
-                    "Auto refresh",
-                    AR_OPTIONS,
-                    index=AR_OPTIONS.index(ar_default),
-                    key="ar_select",
+                ar_default = cfg["interval"] if cfg["interval"] in TF_OPTIONS else "15m"
+                ar_interval = st.selectbox(
+                    "Auto refresh every",
+                    TF_OPTIONS,
+                    index=TF_OPTIONS.index(ar_default),
+                    key=f"ar_int_{market}",
                     label_visibility="collapsed",
                 )
-                st.session_state["ui_ar"] = ar_choice
-        auto_refresh = ar_choice != "Off"
-        st.session_state["auto_refresh"] = auto_refresh
-        if auto_refresh:
-            st.session_state["refresh_minutes"] = AR_MINUTES[ar_choice]
-            nsa = st.session_state.get("next_scan_at")
-            if nsa:
-                left = int(nsa - time.time())
-                if left > 0:
-                    h_, m_, s_ = left // 3600, (left % 3600) // 60, left % 60
-                    txt = f"{h_}h {m_}m" if h_ else f"{m_}m {s_}s"
-                    st.caption(f"⏳ Next scan in {txt}")
+        with kc("ar_sw_row"):
+            s1, s2 = st.columns([1, 1.15])
+            with s1:
+                ar_on = st.toggle(
+                    f"Auto refresh {'ON' if cfg['auto_on'] else 'OFF'}",
+                    value=bool(cfg["auto_on"]),
+                    key=f"ar_on_{market}",
+                )
+            # remember everything for this section (the background engine uses these settings)
+            AUTO.update(market, timeframe=timeframe, min_score=int(min_score), full_only=bool(only_full),
+                        scanner=scanner_id, interval=ar_interval, auto_on=bool(ar_on))
+            with s2:
+                auto_timer(market)
+
+        _tg_on = bool(settings.get("enable_telegram") and settings.get("telegram_token"))
+        st.caption("📨 Telegram alerts ON — sent automatically after every scan" if _tg_on
+                   else "📨 Telegram alerts OFF — turn them on in the Alerts page")
 
         # Progress line ABOVE the scan button
         progress_slot = st.empty()
@@ -1879,15 +2306,9 @@ if page == "dashboard":
             st.session_state["force_scan"] = True
             st.rerun()
 
-    # ---------- run scan (logic unchanged) ----------
-    # Auto scan only when timer elapsed — NOT when returning from Results
-    due_auto = False
-    if st.session_state.get("auto_refresh") and st.session_state.get("next_scan_at") is not None:
-        if time.time() >= st.session_state["next_scan_at"]:
-            due_auto = True
-
+    # ---------- run scan (same scan loop the auto engine uses) ----------
     force = st.session_state.get("force_scan", False)
-    should = run or force or due_auto
+    should = run or force
     if force:
         st.session_state["force_scan"] = False
 
@@ -1895,96 +2316,31 @@ if page == "dashboard":
         if not current_list:
             st.error("Watchlist empty. Add symbols first.")
         else:
-            results = []
-            for i, sym in enumerate(current_list):
-                status_slot.caption(f"Scanning {sym} ({i+1}/{len(current_list)})")
-                if scanner_id == 2:
-                    res = scan_hns(sym, interval=timeframe, rules=hns_rules)
+            cfg_now = {"timeframe": timeframe, "min_score": int(min_score),
+                       "full_only": bool(only_full), "scanner": scanner_id}
+
+            def _prog(stage, i, n, sym):
+                if stage == "start":
+                    status_slot.caption(f"Scanning {sym} ({i+1}/{n})")
                 else:
-                    res = scan_symbol(sym, interval=timeframe, rules=active_rules)
-                if res:
-                    if only_full and not res.get("full_match"):
-                        pass
-                    elif res["score"] >= min_score:
-                        results.append(res)
-                progress_slot.markdown(progress_html((i + 1) / max(len(current_list), 1)), unsafe_allow_html=True)
-                time.sleep(0.08)
+                    progress_slot.markdown(progress_html((i + 1) / max(n, 1)), unsafe_allow_html=True)
+
+            results, _rules_used = core_scan(market, cfg_now, progress=_prog)
             status_slot.caption("Scan complete")
 
-            results = sorted(results, key=lambda x: x["score"], reverse=True)
-            # drop heavy df for session storage safety in history
-            light = []
-            for r in results:
-                item = {k: v for k, v in r.items() if k != "df"}
-                light.append(item)
+            AUTO.set_results(market, results, timeframe, scanner_id, "manual")
+            record_history(market, timeframe, scanner_id, results)
 
-            st.session_state["scan_results"] = results
-            st.session_state["last_scan"] = datetime.now().strftime("%H:%M")
-            st.session_state["last_market"] = market
-            st.session_state["last_tf"] = timeframe
-            st.session_state["last_scanner"] = SCANNER_NAMES[scanner_id]
-
-            # clean history entry
-            hist_entry = {
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "market": market,
-                "timeframe": timeframe,
-                "scanner": SCANNER_NAMES[scanner_id],
-                "count": len(light),
-                "symbols": [x["symbol"] for x in light[:15]],
-                "top_score": light[0]["score"] if light else 0,
-            }
-            history = [hist_entry] + history
-            history = history[:30]  # keep last 30
-            save_json(HISTORY_FILE, history)
-
-            if settings.get("enable_telegram") and settings.get("telegram_token"):
-                _alerts = [x for x in results if x["score"] >= 85 or x.get("full_match")]
-                _alerts = _alerts[: int(settings.get("telegram_max_alerts", 4))]
-                _rules_used = hns_rules if scanner_id == 2 else active_rules
-                _sent, _notes = 0, []
-                for r in _alerts:
-                    ok, mode, note = send_full_alert(
-                        settings["telegram_token"],
-                        settings.get("telegram_chat_id", ""),
-                        r, scanner_id, market, timeframe, _rules_used,
-                        with_chart=bool(settings.get("telegram_send_chart", True)),
-                    )
-                    _sent += 1 if ok else 0
-                    if note:
-                        _notes.append(note)
-                    time.sleep(1.1)          # Telegram allows ~1 message / second per chat
-                if _alerts:
-                    status_slot.caption(
-                        f"Scan complete • 📨 {_sent}/{len(_alerts)} alert(s) sent"
-                        + (f" • {_notes[0]}" if _notes else "")
-                    )
+            # automatic Telegram alerts as soon as the scan is complete (runs in the background)
+            if _tg_on:
+                dispatch_in_background(results, scanner_id, market, timeframe, _rules_used)
+                status_slot.caption("Scan complete • 📨 sending Telegram alerts…")
 
             if not results:
                 st.warning("No setups found. Try lower score or other TF.")
 
-            # Schedule next auto scan from NOW (timer not tied to Results view)
-            if st.session_state.get("auto_refresh"):
-                mins = int(st.session_state.get("refresh_minutes", 5))
-                st.session_state["next_scan_at"] = time.time() + mins * 60
-            else:
-                st.session_state["next_scan_at"] = None
-
-    # ---------- results: right below the scan button ----------
-    results = st.session_state.get("scan_results") or []
-    if st.session_state.get("last_scan"):
-        with kc("panel_dash_results"):
-            st.markdown(
-                f'<div class="ptitle">Results • {st.session_state.get("last_scanner","Scanner 1")[:9]} • {st.session_state.get("last_market","")} • '
-                f'{st.session_state.get("last_tf","")} • {st.session_state.get("last_scan","—")}</div>',
-                unsafe_allow_html=True,
-            )
-            if not results:
-                st.caption("No setups found on last scan.")
-            else:
-                st.caption(f"{len(results)} setup(s) found — tap the centre button for charts")
-                for res in results:
-                    st.markdown(result_card_html(res, detailed=False), unsafe_allow_html=True)
+    # ---------- results: right below the scan button (also shows automatic scans) ----------
+    dash_results(market)
 
     # ---------- Watchlist ----------
     with kc("panel_watch"):
@@ -2076,7 +2432,7 @@ if page == "dashboard":
 elif page == "rules" and scanner_id == 2:
     with kc("panel_rules_head"):
         page_title("Scanner 2 Rules", "Head & Shoulders / Inverse H&S — change any number, then Save")
-    dyn_css += scanner_picker()
+    dyn_css += scanner_picker(persist=False)
 
     new_rules = dict(hns_rules)
     for gi, (g_title, g_fields) in enumerate(HNS_FIELDS):
@@ -2104,7 +2460,7 @@ elif page == "rules" and scanner_id == 2:
 elif page == "rules":
     with kc("panel_rules_head"):
         page_title("Scanner Rules", "View and change the rules the scanner uses")
-    dyn_css += scanner_picker()
+    dyn_css += scanner_picker(persist=False)
 
     with kc("panel_rules_body"):
         st.write(scanners[scanner_name].get("description", "Price action scanner"))
@@ -2207,19 +2563,24 @@ elif page == "rules":
 #                               RESULTS
 # ====================================================================
 elif page == "results":
+    market = st.session_state.get("market", "Indian Stocks")
+    if market not in MARKET_ORDER:
+        market = "Indian Stocks"
+    entry = AUTO.get_results(market)
     with kc("panel_res_head"):
-        page_title(
-            "Scan Results",
-            f"{st.session_state.get('last_scanner','Scanner 1 · Price Action')} • "
-            f"{st.session_state.get('last_market','')} • {st.session_state.get('last_tf','')} • "
-            f"{st.session_state.get('last_scan','—')}",
-        )
+        if entry:
+            sub = (f"{SCANNER_LABELS.get(entry['scanner'], '')} • {market} • {entry['tf']} • "
+                   f"{entry['time']} • {entry['source']}")
+        else:
+            sub = f"{market} • no scan yet"
+        page_title("Scan Results", sub)
         st.button("← Back to Dashboard", use_container_width=True, key="res_back",
                   on_click=go_page, args=("dashboard",))
+    dyn_css += market_picker()
 
-    results = st.session_state.get("scan_results", [])
+    results = entry["results"] if entry else []
     if not results:
-        st.info("No results yet. Run a scan first.")
+        st.info("No results for this section yet. Run a scan, or turn Auto refresh ON.")
     else:
         st.caption(f"{len(results)} setups")
         for idx, res in enumerate(results):
@@ -2236,34 +2597,34 @@ elif page == "alerts":
         page_title("Alerts", "Get setups sent to your Telegram")
 
     with kc("panel_alerts_body"):
-        enable_tg = st.toggle("Enable", value=settings.get("enable_telegram", False))
-        tg_token = st.text_input("Bot Token", value=settings.get("telegram_token", ""), type="password")
-        tg_chat = st.text_input("Chat ID", value=settings.get("telegram_chat_id", ""))
-        tg_chart = st.toggle("Send chart image with every alert", value=settings.get("telegram_send_chart", True))
-        tg_max = st.number_input("Max alerts per scan", min_value=1, max_value=10,
-                                 value=int(settings.get("telegram_max_alerts", 4)), step=1)
-        st.caption("Each alert has the chart (candles, support/resistance or neckline, trendline, "
-                   "target/stop) plus the full details and the rules that passed.")
-        if st.button("Save Telegram", use_container_width=True):
-            settings["enable_telegram"] = enable_tg
-            settings["telegram_token"] = tg_token
-            settings["telegram_chat_id"] = tg_chat
-            settings["telegram_send_chart"] = bool(tg_chart)
-            settings["telegram_max_alerts"] = int(tg_max)
-            save_json(SETTINGS_FILE, settings)
-            st.success("Saved")
+        st.toggle("Telegram alerts ON / OFF", value=bool(settings.get("enable_telegram", False)),
+                  key="tg_enable", on_change=_save_tg, args=("enable_telegram", "tg_enable"))
+        tg_token = st.text_input("Bot Token", value=settings.get("telegram_token", ""), type="password",
+                                 key="tg_token", on_change=_save_tg, args=("telegram_token", "tg_token"))
+        tg_chat = st.text_input("Chat ID", value=settings.get("telegram_chat_id", ""),
+                                key="tg_chat", on_change=_save_tg, args=("telegram_chat_id", "tg_chat"))
+        tg_chart = st.toggle("Send chart image with every alert", value=bool(settings.get("telegram_send_chart", True)),
+                             key="tg_chart", on_change=_save_tg, args=("telegram_send_chart", "tg_chart"))
+        st.number_input("Max alerts per scan", min_value=1, max_value=10,
+                        value=int(settings.get("telegram_max_alerts", 4)), step=1,
+                        key="tg_max", on_change=_save_tg, args=("telegram_max_alerts", "tg_max"))
+        st.number_input("Only alert if score is at least", min_value=0, max_value=100,
+                        value=int(settings.get("telegram_min_score", 0)), step=5,
+                        key="tg_min", on_change=_save_tg, args=("telegram_min_score", "tg_min"))
+        st.caption("Everything here saves the moment you change it and stays that way until you change it again. "
+                   "Alerts go out automatically after every scan (SCAN NOW or Auto refresh) with the chart and full "
+                   "details. The same setup is never sent twice.")
 
-        if st.button("📨 Send last result as a test", use_container_width=True, key="tg_test"):
-            _res = st.session_state.get("scan_results") or []
+        if st.button("📨 Send latest result as a test", use_container_width=True, key="tg_test"):
+            _m, _entry = AUTO.latest_any()
             if not (tg_token and tg_chat):
                 st.warning("Enter the bot token and chat ID first.")
-            elif not _res:
+            elif not _entry or not _entry["results"]:
                 st.warning("Run a scan first - the test sends your latest result.")
             else:
-                _sid = 2 if "Scanner 2" in st.session_state.get("last_scanner", "") else 1
+                _sid = _entry["scanner"]
                 ok, mode, note = send_full_alert(
-                    tg_token, tg_chat, _res[0], _sid,
-                    st.session_state.get("last_market", ""), st.session_state.get("last_tf", ""),
+                    tg_token, tg_chat, _entry["results"][0], _sid, _m, _entry["tf"],
                     hns_rules if _sid == 2 else active_rules, with_chart=bool(tg_chart),
                 )
                 if ok and mode == "chart":
@@ -2272,6 +2633,33 @@ elif page == "alerts":
                     st.warning(f"Sent as text only. Reason: {note or 'chart off'}")
                 else:
                     st.error(f"Could not send. {note}")
+
+    with kc("panel_auto_all"):
+        st.markdown('<div class="ptitle">Auto scan · all sections</div>', unsafe_allow_html=True)
+        for m in MARKET_ORDER:
+            c = AUTO.get(m)
+            e = AUTO.get_results(m)
+            left = AUTO.seconds_left(m)
+            r1, r2 = st.columns([1.6, 1])
+            with r1:
+                st.markdown(f"**{MARKET_LABEL[m]}**")
+            with r2:
+                st.toggle(f"Auto {m}", value=bool(c["auto_on"]), key=f"all_on_{m}",
+                          label_visibility="collapsed", on_change=_set_auto_on, args=(m,))
+            bits = [f"{c['timeframe']} candles", f"every {c['interval']}", SCANNER_LABELS[c["scanner"]][:9]]
+            if c["auto_on"] and left is not None:
+                bits.append("scanning now" if AUTO.busy.get(m) else f"next in {max(left, 0) // 60}m {max(left, 0) % 60:02d}s")
+            if e:
+                bits.append(f"last {e['time']} ({e['source']}) · {len(e['results'])} found")
+            st.caption(" • ".join(bits))
+        b1, b2 = st.columns(2)
+        with b1:
+            st.button("▶ All ON", use_container_width=True, key="all_auto_on", on_click=_all_auto, args=(True,))
+        with b2:
+            st.button("■ All OFF", use_container_width=True, key="all_auto_off", on_click=_all_auto, args=(False,))
+        st.caption("Each section uses the timeframe, min score and scanner you last set for it on the Dashboard. "
+                   "Auto scans keep running in the background while the app is awake - even if you are on another "
+                   "page or section.")
 
 
 # ====================================================================
@@ -2343,15 +2731,12 @@ with kc("bottomnav"):
 dyn_css += f".st-key-nav_{page} button {{ color: #69f0ae !important; text-shadow: 0 0 10px rgba(105,240,174,0.6); }}"
 st.markdown(f"<style>{dyn_css}</style>", unsafe_allow_html=True)
 
-# Soft poll for countdown / due auto (does not reset timer when visiting other pages)
-if page == "dashboard" and st.session_state.get("auto_refresh"):
-    nsa = st.session_state.get("next_scan_at")
-    if nsa is not None:
-        left = nsa - time.time()
-        if left <= 0:
-            st.session_state["force_scan"] = True
-            st.rerun()
-        else:
-            # update countdown about every 15s without restarting the full interval
-            time.sleep(min(15, max(1, left)))
-            st.rerun()
+# Return to the top of the screen whenever a page / the title / Dashboard is tapped
+if st.session_state.get("_goto_n", 0) != st.session_state.get("_goto_seen", 0):
+    st.session_state["_goto_seen"] = st.session_state.get("_goto_n", 0)
+    components.html(
+        "<script>try{var d=window.parent.document;"
+        "var m=d.querySelector('[data-testid=\"stMain\"]')||d.querySelector('section.main');"
+        "if(m){m.scrollTo({top:0,behavior:'smooth'});}window.parent.scrollTo(0,0);}catch(e){}</script>",
+        height=0,
+    )
