@@ -2163,4 +2163,195 @@ elif page == "rules":
             r["require_consolidation"] = st.checkbox("Consolidation before break", value=r.get("require_consolidation", True))
             r["require_volume_dry"] = st.checkbox("Volume drying before break", value=r.get("require_volume_dry", True))
             if st.button("💾 Save rules", type="primary", use_container_width=True, key="save_rules"):
-                scanners[scanner_name]["rules"
+                scanners[scanner_name]["rules"] = r
+                save_json(SCANNERS_FILE, scanners)
+                st.session_state["rules_edit"] = False
+                st.success("Rules saved — no app update needed")
+                st.rerun()
+            if st.button("Cancel edit", use_container_width=True):
+                st.session_state["rules_edit"] = False
+                st.rerun()
+
+    with kc("panel_rules_profiles"):
+        st.markdown('<div class="ptitle">Scanner profiles</div>', unsafe_allow_html=True)
+        new_profile = st.text_input("New profile name", placeholder="My strict scanner")
+        if st.button("➕ Add profile (copy current rules)", use_container_width=True):
+            if new_profile and new_profile.strip():
+                name = new_profile.strip()
+                if name not in scanners:
+                    scanners[name] = {
+                        "description": f"Custom profile: {name}",
+                        "rules": dict(active_rules),
+                    }
+                    save_json(SCANNERS_FILE, scanners)
+                    st.success(f"Added profile {name}")
+                    st.rerun()
+                else:
+                    st.warning("Name already exists")
+            else:
+                st.warning("Enter a name")
+
+        for nm in list(scanners.keys()):
+            c1, c2 = st.columns([4, 1])
+            c1.write(f"• **{nm}**" + (" ← active" if nm == scanner_name else ""))
+            if c2.button("🗑", key=f"del_prof_{nm}"):
+                if len(scanners) <= 1:
+                    st.warning("Keep at least one profile")
+                else:
+                    del scanners[nm]
+                    save_json(SCANNERS_FILE, scanners)
+                    st.rerun()
+
+
+# ====================================================================
+#                               RESULTS
+# ====================================================================
+elif page == "results":
+    with kc("panel_res_head"):
+        page_title(
+            "Scan Results",
+            f"{st.session_state.get('last_scanner','Scanner 1 · Price Action')} • "
+            f"{st.session_state.get('last_market','')} • {st.session_state.get('last_tf','')} • "
+            f"{st.session_state.get('last_scan','—')}",
+        )
+        st.button("← Back to Dashboard", use_container_width=True, key="res_back",
+                  on_click=go_page, args=("dashboard",))
+
+    results = st.session_state.get("scan_results", [])
+    if not results:
+        st.info("No results yet. Run a scan first.")
+    else:
+        st.caption(f"{len(results)} setups")
+        for idx, res in enumerate(results):
+            st.markdown(result_card_html(res, detailed=True), unsafe_allow_html=True)
+            with st.expander(f"Chart • {res['symbol']}", expanded=(idx == 0)):
+                render_chart(res)
+
+
+# ====================================================================
+#                                ALERTS
+# ====================================================================
+elif page == "alerts":
+    with kc("panel_alerts_head"):
+        page_title("Alerts", "Get setups sent to your Telegram")
+
+    with kc("panel_alerts_body"):
+        enable_tg = st.toggle("Enable", value=settings.get("enable_telegram", False))
+        tg_token = st.text_input("Bot Token", value=settings.get("telegram_token", ""), type="password")
+        tg_chat = st.text_input("Chat ID", value=settings.get("telegram_chat_id", ""))
+        tg_chart = st.toggle("Send chart image with every alert", value=settings.get("telegram_send_chart", True))
+        tg_max = st.number_input("Max alerts per scan", min_value=1, max_value=10,
+                                 value=int(settings.get("telegram_max_alerts", 4)), step=1)
+        st.caption("Each alert has the chart (candles, support/resistance or neckline, trendline, "
+                   "target/stop) plus the full details and the rules that passed.")
+        if st.button("Save Telegram", use_container_width=True):
+            settings["enable_telegram"] = enable_tg
+            settings["telegram_token"] = tg_token
+            settings["telegram_chat_id"] = tg_chat
+            settings["telegram_send_chart"] = bool(tg_chart)
+            settings["telegram_max_alerts"] = int(tg_max)
+            save_json(SETTINGS_FILE, settings)
+            st.success("Saved")
+
+        if st.button("📨 Send last result as a test", use_container_width=True, key="tg_test"):
+            _res = st.session_state.get("scan_results") or []
+            if not (tg_token and tg_chat):
+                st.warning("Enter the bot token and chat ID first.")
+            elif not _res:
+                st.warning("Run a scan first - the test sends your latest result.")
+            else:
+                _sid = 2 if "Scanner 2" in st.session_state.get("last_scanner", "") else 1
+                ok, mode, note = send_full_alert(
+                    tg_token, tg_chat, _res[0], _sid,
+                    st.session_state.get("last_market", ""), st.session_state.get("last_tf", ""),
+                    hns_rules if _sid == 2 else active_rules, with_chart=bool(tg_chart),
+                )
+                if ok and mode == "chart":
+                    st.success("Sent with chart image ✅")
+                elif ok:
+                    st.warning(f"Sent as text only. Reason: {note or 'chart off'}")
+                else:
+                    st.error(f"Could not send. {note}")
+
+
+# ====================================================================
+#                                HISTORY
+# ====================================================================
+elif page == "history":
+    with kc("panel_hist_head"):
+        page_title("Scan History", "Your last 30 scans, newest first")
+
+    if not history:
+        st.info("No history yet.")
+    else:
+        for h in history:
+            chips = "".join(
+                f'<span class="chip">{s.replace(".NS", "").replace("-USD", "").replace("=X", "")}</span>'
+                for s in h.get("symbols", [])[:10]
+            )
+            if len(h.get("symbols", [])) > 10:
+                chips += '<span class="chip">…</span>'
+            top = f' • top score <b>{h.get("top_score")}</b>' if h.get("top_score") else ""
+            st.markdown(
+                f'<div class="card"><div style="font-weight:800;font-size:1.02rem;">{h.get("time","")}</div>'
+                f'<div style="color:#9aabc8;margin-top:0.25rem;font-size:0.9rem;">'
+                f'{h.get("scanner","Scanner 1 · Price Action")}<br>{h.get("market","")} • {h.get("timeframe","")} • <b>{h.get("count",0)}</b> setups{top}</div>'
+                f'<div style="margin-top:0.3rem;">{chips or "—"}</div></div>',
+                unsafe_allow_html=True,
+            )
+        if st.button("Clear history", use_container_width=True, key="clear_hist"):
+            save_json(HISTORY_FILE, [])
+            st.rerun()
+
+st.caption("PA Scanner • Mobile first • Chart-matched price action")
+
+# ====================================================================
+#                   BOTTOM NAV  (sits above "Manage app")
+# ====================================================================
+if MODERN:
+    NAV_ITEMS = [
+        ("dashboard", ":material/grid_view:", "Dashboard"),
+        ("rules", ":material/tune:", "Rules"),
+        ("results", ":material/query_stats:", ""),
+        ("alerts", ":material/notifications:", "Alerts"),
+        ("history", ":material/history:", "History"),
+    ]
+else:
+    NAV_ITEMS = [
+        ("dashboard", "▦", "Dashboard"),
+        ("rules", "📐", "Rules"),
+        ("results", "📊", ""),
+        ("alerts", "🔔", "Alerts"),
+        ("history", "🕒", "History"),
+    ]
+
+with kc("bottomnav"):
+    ncols = st.columns([1.05, 1, 0.95, 1, 1])
+    for col, (pid, icon, text) in zip(ncols, NAV_ITEMS):
+        with col:
+            label = f"{icon}  \n{text}" if text else icon
+            st.button(
+                label,
+                key=f"nav_{pid}",
+                use_container_width=True,
+                on_click=go_page,
+                args=(pid,),
+                help="Results" if pid == "results" else None,
+            )
+
+# highlight the active tab + live slider fill
+dyn_css += f".st-key-nav_{page} button {{ color: #69f0ae !important; text-shadow: 0 0 10px rgba(105,240,174,0.6); }}"
+st.markdown(f"<style>{dyn_css}</style>", unsafe_allow_html=True)
+
+# Soft poll for countdown / due auto (does not reset timer when visiting other pages)
+if page == "dashboard" and st.session_state.get("auto_refresh"):
+    nsa = st.session_state.get("next_scan_at")
+    if nsa is not None:
+        left = nsa - time.time()
+        if left <= 0:
+            st.session_state["force_scan"] = True
+            st.rerun()
+        else:
+            # update countdown about every 15s without restarting the full interval
+            time.sleep(min(15, max(1, left)))
+            st.rerun()
