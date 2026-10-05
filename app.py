@@ -86,6 +86,27 @@ DEFAULT_SETTINGS = {
     "min_score_to_alert": 85
 }
 
+# Scanner 3 — STRICT chart-match (switchable; does not change Scanner 1)
+DEFAULT_STRICT_RULES = {
+    "require_trend": False,
+    "require_near_sr": True,
+    "sr_pct": 0.35,
+    "require_structure": True,
+    "require_healthy_break": True,
+    "require_level_touches": True,
+    "min_level_touches": 2,
+    "require_consolidation": False,
+    "require_volume_dry": True,
+    "require_pin_bar": True,
+    "require_high_volume_rejection": True,
+    "vol_ratio": 1.2,
+    "require_rejection_at_level": True,
+    "require_min_break_pct": True,
+    "min_break_pct": 0.12,
+    "skip_open_minutes": 15,
+}
+STRICT_FILE = os.path.join(DATA_DIR, "strict_rules.json")
+
 # ====================== HELPERS ======================
 def load_json(filepath, default):
     if os.path.exists(filepath):
@@ -459,6 +480,258 @@ def scan_symbol(symbol, interval="5m", rules=None):
 
 
 # ====================== SCANNER 2 : HEAD & SHOULDERS / INVERSE H&S ======================
+
+# ---------- Scanner 3 STRICT helpers (Scanner 1 scan_symbol left unchanged) ----------
+def count_level_touches(df, level, pct=0.25, lookback=50):
+    recent = df.tail(lookback)
+    touches = 0
+    for _, row in recent.iterrows():
+        if (row["Low"] <= level * (1 + pct / 100.0)) and (row["High"] >= level * (1 - pct / 100.0)):
+            touches += 1
+    return touches
+
+def rejection_at_level(candle, level, pct=0.35):
+    band = level * (pct / 100.0)
+    return (candle["Low"] <= level + band) and (candle["High"] >= level - band)
+
+def volume_drying(df, end_i, window=6):
+    if end_i < window + 1:
+        return True
+    vols = df["Volume"].iloc[end_i - window:end_i].astype(float).values
+    if np.nansum(vols) <= 0:
+        return True
+    first = np.nanmean(vols[: max(2, window // 2)])
+    second = np.nanmean(vols[max(2, window // 2):])
+    if first <= 0:
+        return True
+    return second <= first * 0.95
+
+def is_open_noise(ts, skip_minutes=15):
+    try:
+        if hasattr(ts, "to_pydatetime"):
+            ts = ts.to_pydatetime()
+        if getattr(ts, "tzinfo", None) is not None:
+            ts = ts.astimezone(IST)
+        minutes = ts.hour * 60 + ts.minute
+        open_m = 9 * 60 + 15
+        return open_m <= minutes < open_m + skip_minutes
+    except Exception:
+        return False
+
+def is_healthy_break_strict(candle, direction="up"):
+    body = abs(candle["Close"] - candle["Open"])
+    rng = candle["High"] - candle["Low"]
+    if rng == 0:
+        return False
+    if body / rng < 0.50:
+        return False
+    if direction == "up":
+        if candle["Close"] <= candle["Open"]:
+            return False
+        return (candle["Close"] - candle["Low"]) / rng >= 0.70
+    if candle["Close"] >= candle["Open"]:
+        return False
+    return (candle["High"] - candle["Close"]) / rng >= 0.70
+
+def is_rejection_strict(candle, direction="up"):
+    body = abs(candle["Close"] - candle["Open"])
+    upper = candle["High"] - max(candle["Open"], candle["Close"])
+    lower = min(candle["Open"], candle["Close"]) - candle["Low"]
+    rng = candle["High"] - candle["Low"]
+    if rng == 0:
+        return False
+    body_ratio = body / rng
+    is_red = candle["Close"] < candle["Open"]
+    is_green = candle["Close"] > candle["Open"]
+    bear_reject = upper > lower * 1.5 and upper > body * 1.1 and upper / rng > 0.42
+    bull_reject = lower > upper * 1.5 and lower > body * 1.1 and lower / rng > 0.42
+    if direction == "up":
+        return (is_red and body_ratio >= 0.28) or bear_reject
+    return (is_green and body_ratio >= 0.28) or bull_reject
+
+def scan_symbol_strict(symbol, interval="5m", rules=None):
+    """Scanner 3 — strict chart-match. Does not alter Scanner 1 logic."""
+    rules = dict(DEFAULT_STRICT_RULES if rules is None else rules)
+    try:
+        ticker = yf.Ticker(symbol)
+        tf_map = {
+            "1m": "1m", "3m": "2m", "5m": "5m", "15m": "15m",
+            "1h": "1h", "4h": "1h", "1d": "1d", "30m": "30m",
+        }
+        yf_interval = tf_map.get(interval, interval)
+        if interval in ["1m", "3m", "5m"]:
+            period = "5d"
+        elif interval in ["15m", "30m", "1h", "4h"]:
+            period = "60d"
+        else:
+            period = "1y"
+        df = ticker.history(period=period, interval=yf_interval)
+        if df is None or len(df) < 50:
+            return None
+        df = df.dropna()
+        supports, resistances = find_key_levels(df, lookback=55)
+        sr_pct = float(rules.get("sr_pct", 0.35))
+        vol_ratio = float(rules.get("vol_ratio", 1.2))
+        min_break = float(rules.get("min_break_pct", 0.12))
+        min_touches = int(rules.get("min_level_touches", 2))
+        skip_m = int(rules.get("skip_open_minutes", 15) or 0)
+
+        for conf_offset in [0, -1]:
+            conf_i = len(df) - 1 + conf_offset
+            break_i = conf_i - 1
+            if break_i < 20:
+                continue
+            break_candle = df.iloc[break_i]
+            conf_candle = df.iloc[conf_i]
+            break_close = float(break_candle["Close"])
+            conf_close = float(conf_candle["Close"])
+
+            # BULLISH
+            near_res = price_near_level(break_close, resistances, pct=sr_pct)
+            if near_res is not None:
+                level = near_res
+                if skip_m and is_open_noise(df.index[break_i], skip_m):
+                    continue
+                if rules.get("require_level_touches", True):
+                    touches = count_level_touches(df.iloc[: break_i + 1], level, pct=sr_pct, lookback=50)
+                    if touches < min_touches:
+                        continue
+                else:
+                    touches = 0
+                break_pct = (break_close - level) / level * 100
+                if rules.get("require_min_break_pct", True) and break_pct < min_break:
+                    continue
+                if break_close > level and is_healthy_break_strict(break_candle, "up"):
+                    pre_break = df.iloc[: break_i + 1]
+                    if rules.get("require_volume_dry", True) and not volume_drying(df, break_i, window=6):
+                        continue
+                    if rules.get("require_structure", True) and not has_higher_low(pre_break, lookback=35):
+                        continue
+                    if rules.get("require_pin_bar", True) and not is_rejection_strict(conf_candle, "up"):
+                        continue
+                    if rules.get("require_rejection_at_level", True) and not rejection_at_level(conf_candle, level, pct=sr_pct + 0.1):
+                        continue
+                    prev_vol = float(df["Volume"].iloc[break_i])
+                    conf_vol = float(df["Volume"].iloc[conf_i])
+                    if rules.get("require_high_volume_rejection", True):
+                        if prev_vol > 0 or conf_vol > 0:
+                            if not (conf_vol >= prev_vol * vol_ratio):
+                                continue
+                    score = 72
+                    if conf_vol >= prev_vol * vol_ratio and prev_vol > 0:
+                        score += 12
+                    if break_pct >= 0.2:
+                        score += 8
+                    if touches >= 3:
+                        score += 5
+                    seg = pre_break.tail(30)
+                    sh, sl = detect_swing_points(seg, left=2, right=2)
+                    trend_pts = []
+                    if len(sl) >= 2:
+                        trend_pts = [
+                            [str(seg.index[sl[-2][0]]), float(sl[-2][1])],
+                            [str(seg.index[sl[-1][0]]), float(sl[-1][1])],
+                        ]
+                    return {
+                        "symbol": symbol,
+                        "score": min(score, 100),
+                        "full_match": True,
+                        "trend": "Uptrend",
+                        "direction": "Bullish",
+                        "price": round(conf_close, 5),
+                        "interval": interval,
+                        "near_level": "Resistance",
+                        "level_price": round(level, 5),
+                        "break_level": round(level, 5),
+                        "break_time_ist": to_ist_str(df.index[break_i]),
+                        "setup_time_ist": to_ist_str(df.index[conf_i]),
+                        "scanned_at_ist": datetime.now(IST).strftime("%d-%b-%Y %H:%M IST"),
+                        "scores": {"sr": 90, "structure": 90, "volume_dry": 70, "confirmation": 90},
+                        "details": {
+                            "is_consol": True, "volume_dry": True, "pin_bar": True,
+                            "higher_low": True, "lower_high": False, "break_up": True, "break_down": False,
+                            "strict": True,
+                        },
+                        "trend_points": trend_pts,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "df": df.tail(60),
+                    }
+
+            # BEARISH
+            near_sup = price_near_level(break_close, supports, pct=sr_pct)
+            if near_sup is not None:
+                level = near_sup
+                if skip_m and is_open_noise(df.index[break_i], skip_m):
+                    continue
+                if rules.get("require_level_touches", True):
+                    touches = count_level_touches(df.iloc[: break_i + 1], level, pct=sr_pct, lookback=50)
+                    if touches < min_touches:
+                        continue
+                else:
+                    touches = 0
+                break_pct = (level - break_close) / level * 100
+                if rules.get("require_min_break_pct", True) and break_pct < min_break:
+                    continue
+                if break_close < level and is_healthy_break_strict(break_candle, "down"):
+                    pre_break = df.iloc[: break_i + 1]
+                    if rules.get("require_volume_dry", True) and not volume_drying(df, break_i, window=6):
+                        continue
+                    if rules.get("require_structure", True) and not has_lower_high(pre_break, lookback=35):
+                        continue
+                    if rules.get("require_pin_bar", True) and not is_rejection_strict(conf_candle, "down"):
+                        continue
+                    if rules.get("require_rejection_at_level", True) and not rejection_at_level(conf_candle, level, pct=sr_pct + 0.1):
+                        continue
+                    prev_vol = float(df["Volume"].iloc[break_i])
+                    conf_vol = float(df["Volume"].iloc[conf_i])
+                    if rules.get("require_high_volume_rejection", True):
+                        if prev_vol > 0 or conf_vol > 0:
+                            if not (conf_vol >= prev_vol * vol_ratio):
+                                continue
+                    score = 72
+                    if conf_vol >= prev_vol * vol_ratio and prev_vol > 0:
+                        score += 12
+                    if break_pct >= 0.2:
+                        score += 8
+                    if touches >= 3:
+                        score += 5
+                    seg = pre_break.tail(30)
+                    sh, sl = detect_swing_points(seg, left=2, right=2)
+                    trend_pts = []
+                    if len(sh) >= 2:
+                        trend_pts = [
+                            [str(seg.index[sh[-2][0]]), float(sh[-2][1])],
+                            [str(seg.index[sh[-1][0]]), float(sh[-1][1])],
+                        ]
+                    return {
+                        "symbol": symbol,
+                        "score": min(score, 100),
+                        "full_match": True,
+                        "trend": "Downtrend",
+                        "direction": "Bearish",
+                        "price": round(conf_close, 5),
+                        "interval": interval,
+                        "near_level": "Support",
+                        "level_price": round(level, 5),
+                        "break_level": round(level, 5),
+                        "break_time_ist": to_ist_str(df.index[break_i]),
+                        "setup_time_ist": to_ist_str(df.index[conf_i]),
+                        "scanned_at_ist": datetime.now(IST).strftime("%d-%b-%Y %H:%M IST"),
+                        "scores": {"sr": 90, "structure": 90, "volume_dry": 70, "confirmation": 90},
+                        "details": {
+                            "is_consol": True, "volume_dry": True, "pin_bar": True,
+                            "higher_low": False, "lower_high": True, "break_up": False, "break_down": True,
+                            "strict": True,
+                        },
+                        "trend_points": trend_pts,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "df": df.tail(60),
+                    }
+        return None
+    except Exception:
+        return None
+
+
 # Independent from Scanner 1 (scan_symbol is untouched).
 # The inverse pattern is the exact mirror of the normal one: the price series is flipped
 # (O,H,L,C -> -O,-L,-H,-C), the same top-pattern detector runs, and results are flipped back.
@@ -989,7 +1262,7 @@ def build_alert_text(res, scanner_id, market, timeframe, rules):
     bull = res.get("direction") == "Bullish"
     dot = "🟢" if bull else "🔴"
     sym = e(str(res.get("symbol", "")))
-    sc_name = "Scanner 2 · Head &amp; Shoulders" if scanner_id == 2 else "Scanner 1 · Price Action"
+    sc_name = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head &amp; Shoulders", 3: "Scanner 3 · Strict PA"}.get(scanner_id, "Scanner")
 
     head = (f"🚨 <b>{sym}</b>  {dot} {e(str(res.get('pattern') or res.get('direction','')))}"
             f"{' (' + e(str(res.get('direction',''))) + ')' if res.get('pattern') else ''}\n"
@@ -1094,7 +1367,7 @@ AUTO_CFG_FILE = os.path.join(DATA_DIR, "auto_config.json")
 SENT_FILE = os.path.join(DATA_DIR, "alerts_sent.json")
 AUTO_MARKETS = ["Indian Stocks", "Crypto", "Forex"]
 INTERVAL_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
-SCANNER_LABELS = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders"}
+SCANNER_LABELS = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders", 3: "Scanner 3 · Strict PA"}
 
 # defaults: timeframe 15m, auto-refresh interval 15m, auto refresh OFF until the user turns it on
 DEFAULT_MARKET_CFG = {
@@ -1215,8 +1488,13 @@ def core_scan(market, cfg, progress=None):
     for i, sym in enumerate(wl):
         if progress:
             progress("start", i, n, sym)
-        if cfg.get("scanner") == 2:
+        sid = cfg.get("scanner", 1)
+        if sid == 2:
             res = scan_hns(sym, interval=tf, rules=hns)
+        elif sid == 3:
+            strict_r = dict(DEFAULT_STRICT_RULES)
+            strict_r.update(load_json(STRICT_FILE, {}))
+            res = scan_symbol_strict(sym, interval=tf, rules=strict_r)
         else:
             res = scan_symbol(sym, interval=tf, rules=rules1)
         if res:
@@ -1228,7 +1506,15 @@ def core_scan(market, cfg, progress=None):
             progress("done", i, n, sym)
         time.sleep(0.08)
     results = sorted(results, key=lambda x: x["score"], reverse=True)
-    return results, (hns if cfg.get("scanner") == 2 else rules1)
+    sid = cfg.get("scanner", 1)
+    if sid == 2:
+        used = hns
+    elif sid == 3:
+        used = dict(DEFAULT_STRICT_RULES)
+        used.update(load_json(STRICT_FILE, {}))
+    else:
+        used = rules1
+    return results, used
 
 
 def record_history(market, tf, scanner, results):
@@ -1803,14 +2089,15 @@ def fmt_price(p):
 SCANNER_BTNS = [
     (1, "Scanner 1  \nPrice Action", "sc_1", "rgba(0,60,70,0.7)", "#00e5ff", "rgba(0,229,255,0.5)"),
     (2, "Scanner 2  \nHead & Shoulders", "sc_2", "rgba(80,50,0,0.7)", "#ffb300", "rgba(255,179,0,0.5)"),
+    (3, "Scanner 3  \nStrict PA", "sc_3", "rgba(0,50,30,0.75)", "#00e676", "rgba(0,230,118,0.55)"),
 ]
 
 
 def scanner_picker(persist=True):
-    """Two big buttons (same style as Stocks/Crypto/Forex). Returns the CSS that highlights the active one."""
+    """Scanner buttons (same style as Stocks/Crypto/Forex). Returns the CSS that highlights the active one."""
     cur = st.session_state.get("scanner", 1)
     with kc("scanner_wrap"):
-        cols = st.columns(2)
+        cols = st.columns(len(SCANNER_BTNS))
         for col, (sid, label, key, _bg, _bd, _gl) in zip(cols, SCANNER_BTNS):
             with col:
                 st.button(label, key=key, use_container_width=True,
@@ -2150,7 +2437,7 @@ history = load_json(HISTORY_FILE, [])
 hns_rules = dict(DEFAULT_HNS_RULES)
 hns_rules.update(load_json(HNS_FILE, {}))
 scanner_id = st.session_state.get("scanner", 1)
-SCANNER_NAMES = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders"}
+SCANNER_NAMES = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders", 3: "Scanner 3 · Strict PA"}
 
 if "market" not in st.session_state:
     st.session_state["market"] = "Indian Stocks"
@@ -2456,6 +2743,45 @@ elif page == "rules" and scanner_id == 2:
             st.success("Saved — applies to the next scan")
         st.button("↩️ Reset to recommended defaults", use_container_width=True, key="reset_hns",
                   on_click=reset_hns_rules)
+
+elif page == "rules" and scanner_id == 3:
+    with kc("panel_rules_head"):
+        page_title("Scanner 3 Rules", "STRICT chart-match — fewer signals, closer to the quality setup")
+    dyn_css += scanner_picker(persist=False)
+    strict_rules = dict(DEFAULT_STRICT_RULES)
+    strict_rules.update(load_json(STRICT_FILE, {}))
+    with kc("panel_rules_body"):
+        st.markdown("""
+**Strict rules (chart-matched)**
+- Near S/R within **0.35%**
+- Level tested **≥ 2 times**
+- HL / LH structure **ON**
+- Volume dry into break **ON** (skipped if no volume data)
+- Healthy break (body ≥ 50%, strong close)
+- Min break size **0.12%**
+- Rejection / doji after break **ON**
+- Rejection must retest broken level **ON**
+- Rejection volume ≥ **1.2×** breakout volume
+- Skip first **15 minutes** of India session
+""")
+        st.caption("Scanner 1 stays unchanged. Switch scanners on Dashboard to compare results.")
+        r = dict(strict_rules)
+        r["sr_pct"] = st.slider("S/R distance %", 0.2, 1.0, float(r.get("sr_pct", 0.35)), 0.05, key="st_sr")
+        r["min_level_touches"] = st.slider("Min level touches", 1, 5, int(r.get("min_level_touches", 2)), 1, key="st_touch")
+        r["min_break_pct"] = st.slider("Min break %", 0.05, 0.5, float(r.get("min_break_pct", 0.12)), 0.01, key="st_brk")
+        r["vol_ratio"] = st.slider("Rejection vol multiple", 1.0, 2.0, float(r.get("vol_ratio", 1.2)), 0.1, key="st_vol")
+        r["skip_open_minutes"] = st.slider("Skip open minutes", 0, 30, int(r.get("skip_open_minutes", 15)), 5, key="st_skip")
+        r["require_volume_dry"] = st.checkbox("Volume dry into break", value=bool(r.get("require_volume_dry", True)), key="st_vdry")
+        r["require_rejection_at_level"] = st.checkbox("Rejection must retest level", value=bool(r.get("require_rejection_at_level", True)), key="st_rejlv")
+        r["require_high_volume_rejection"] = st.checkbox("High rejection volume", value=bool(r.get("require_high_volume_rejection", True)), key="st_hvol")
+        if st.button("💾 Save Scanner 3 rules", type="primary", use_container_width=True, key="save_strict"):
+            save_json(STRICT_FILE, r)
+            st.success("Strict rules saved")
+            st.rerun()
+        if st.button("♻️ Reset Scanner 3 defaults", use_container_width=True, key="reset_strict"):
+            save_json(STRICT_FILE, dict(DEFAULT_STRICT_RULES))
+            st.success("Reset to strict defaults")
+            st.rerun()
 
 elif page == "rules":
     with kc("panel_rules_head"):
