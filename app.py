@@ -39,26 +39,11 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # ====================== DEFAULT DATA ======================
 DEFAULT_WATCHLISTS = {
-    "Indian Stocks": [
-        "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
-        "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "KOTAKBANK.NS", "LT.NS",
-        "AXISBANK.NS", "BAJFINANCE.NS", "HINDUNILVR.NS", "ASIANPAINT.NS",
-        "MARUTI.NS", "TITAN.NS", "SUNPHARMA.NS", "WIPRO.NS", "ULTRACEMCO.NS",
-        "NESTLEIND.NS", "POWERGRID.NS", "NTPC.NS", "TECHM.NS", "HCLTECH.NS",
-        "ADANIENT.NS", "ADANIPORTS.NS", "TATASTEEL.NS", "JSWSTEEL.NS",
-        "INDUSINDBK.NS", "BAJAJFINSV.NS"
-    ],
-    "Crypto": [
-        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
-        "ADA-USD", "DOGE-USD", "AVAX-USD", "DOT-USD", "MATIC-USD",
-        "LINK-USD", "LTC-USD", "ATOM-USD", "UNI-USD", "APT-USD"
-    ],
-    "Forex": [
-        "EURUSD=X", "GBPUSD=X", "USDJPY=X", "USDINR=X", "AUDUSD=X",
-        "USDCAD=X", "USDCHF=X", "NZDUSD=X", "EURJPY=X", "GBPJPY=X",
-        "EURGBP=X", "AUDJPY=X", "EURAUD=X", "GBPAUD=X"
-    ]
+    "Indian Stocks": ['^NSEI', '^NSEBANK', '^BSESN', 'CL=F', 'BZ=F', 'DX-Y.NYB', '^NDX', 'QQQ', '^IXIC', 'RELIANCE.NS', 'HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS', 'KOTAKBANK.NS', 'INDUSINDBK.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'SHRIRAMFIN.NS', 'HDFCLIFE.NS', 'SBILIFE.NS', 'JIOFIN.NS', 'TCS.NS', 'INFY.NS', 'HCLTECH.NS', 'WIPRO.NS', 'TECHM.NS', 'LTIM.NS', 'BHARTIARTL.NS', 'ITC.NS', 'HINDUNILVR.NS', 'NESTLEIND.NS', 'TATACONSUM.NS', 'TITAN.NS', 'TRENT.NS', 'ETERNAL.NS', 'LT.NS', 'ULTRACEMCO.NS', 'GRASIM.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'NTPC.NS', 'POWERGRID.NS', 'ONGC.NS', 'COALINDIA.NS', 'BEL.NS', 'TATASTEEL.NS', 'JSWSTEEL.NS', 'HINDALCO.NS', 'MARUTI.NS', 'M&M.NS', 'BAJAJ-AUTO.NS', 'EICHERMOT.NS', 'ASIANPAINT.NS', 'SUNPHARMA.NS', 'DRREDDY.NS', 'CIPLA.NS', 'APOLLOHOSP.NS', 'BANKBARODA.NS', 'PNB.NS', 'CANBK.NS', 'FEDERALBNK.NS', 'IDFCFIRSTB.NS', 'AUBANK.NS', 'BANDHANBNK.NS', 'CHOLAFIN.NS', 'MUTHOOTFIN.NS', 'LICHSGFIN.NS', 'PFC.NS', 'RECLTD.NS', 'SBICARD.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'HDFCAMC.NS', 'PERSISTENT.NS', 'COFORGE.NS', 'MPHASIS.NS', 'KPITTECH.NS', 'HEROMOTOCO.NS', 'TVSMOTOR.NS', 'ASHOKLEY.NS', 'BOSCHLTD.NS', 'MOTHERSON.NS', 'BPCL.NS', 'IOC.NS', 'GAIL.NS', 'TATAPOWER.NS', 'ADANIGREEN.NS', 'ADANIPOWER.NS', 'VEDL.NS', 'SAIL.NS', 'NMDC.NS', 'JINDALSTEL.NS', 'BRITANNIA.NS', 'DABUR.NS', 'GODREJCP.NS', 'PIDILITIND.NS', 'DMART.NS', 'VBL.NS', 'HAVELLS.NS', 'POLYCAB.NS', 'DIXON.NS', 'DIVISLAB.NS', 'LUPIN.NS', 'AUROPHARMA.NS', 'TORNTPHARM.NS', 'ZYDUSLIFE.NS', 'AMBUJACEM.NS', 'SIEMENS.NS', 'ABB.NS', 'HAL.NS', 'BHEL.NS', 'DLF.NS', 'GODREJPROP.NS', 'LODHA.NS', 'INDIGO.NS', 'IRCTC.NS', 'INDUSTOWER.NS', 'IDEA.NS', 'NAUKRI.NS', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NVDA', 'TSLA', 'NFLX', 'AMD', 'INTC', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'UBER', 'COIN', 'BA', 'JPM', 'V', 'MA', 'WMT', 'DIS'],
+    "Crypto": ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD', 'DOGE-USD', 'AVAX-USD', 'DOT-USD', 'MATIC-USD', 'LINK-USD', 'LTC-USD', 'ATOM-USD', 'UNI-USD', 'APT-USD', 'XAUUSD=X'],
+    "Forex": ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDINR=X', 'AUDUSD=X', 'USDCAD=X', 'USDCHF=X', 'NZDUSD=X', 'EURJPY=X', 'GBPJPY=X', 'EURGBP=X', 'AUDJPY=X', 'EURAUD=X', 'GBPAUD=X', 'XAUUSD=X', 'CL=F', 'DX-Y.NYB', '^NDX', 'QQQ'],
 }
+
 
 DEFAULT_SCANNERS = {
     "My Price Action Scanner": {
@@ -108,31 +93,269 @@ DEFAULT_STRICT_RULES = {
 STRICT_FILE = os.path.join(DATA_DIR, "strict_rules.json")
 
 # ====================== HELPERS ======================
+# ---------- Persistent storage (survives Streamlit Cloud sleep/reboot) ----------
+# Local files alone are wiped when Streamlit Cloud restarts the app.
+# If you set secrets PERSIST_GITHUB_TOKEN + PERSIST_GIST_ID, data is also stored in a private GitHub Gist.
+# Backup / Restore buttons always work even without secrets.
+
+_PERSIST_KEYS = {
+    "watchlists.json": WATCHLIST_FILE,
+    "scanners.json": SCANNERS_FILE,
+    "settings.json": SETTINGS_FILE,
+    "scan_history.json": HISTORY_FILE,
+    "strict_rules.json": STRICT_FILE,
+}
+
+def _secrets_get(key, default=None):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+def _gist_creds():
+    token = _secrets_get("PERSIST_GITHUB_TOKEN") or _secrets_get("GITHUB_TOKEN")
+    gist_id = _secrets_get("PERSIST_GIST_ID") or _secrets_get("GIST_ID")
+    if token and gist_id:
+        return str(token).strip(), str(gist_id).strip()
+    return None, None
+
+def _pull_gist_bundle():
+    """Download full app state from GitHub Gist. Returns dict filename->data or None."""
+    token, gist_id = _gist_creds()
+    if not token or not gist_id:
+        return None
+    try:
+        r = requests.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return None
+        files = r.json().get("files") or {}
+        # Prefer single bundle file
+        if "pa_scanner_state.json" in files:
+            content = files["pa_scanner_state.json"].get("content") or ""
+            return json.loads(content)
+        bundle = {}
+        for name in _PERSIST_KEYS:
+            if name in files and files[name].get("content"):
+                try:
+                    bundle[name] = json.loads(files[name]["content"])
+                except Exception:
+                    pass
+        return bundle or None
+    except Exception:
+        return None
+
+def _push_gist_bundle():
+    """Upload all local JSON state to GitHub Gist (creates durable cloud copy)."""
+    token, gist_id = _gist_creds()
+    if not token or not gist_id:
+        return False, "cloud backup not configured"
+    try:
+        bundle = {}
+        for name, path in _PERSIST_KEYS.items():
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        bundle[name] = json.load(f)
+                except Exception:
+                    pass
+            else:
+                # include defaults for missing files so restore is complete
+                if name == "watchlists.json":
+                    bundle[name] = DEFAULT_WATCHLISTS
+                elif name == "settings.json":
+                    bundle[name] = DEFAULT_SETTINGS
+                elif name == "strict_rules.json":
+                    bundle[name] = DEFAULT_STRICT_RULES
+                elif name == "scanners.json":
+                    bundle[name] = DEFAULT_SCANNERS
+                elif name == "scan_history.json":
+                    bundle[name] = []
+        # also auto cfg / hns / sent if present
+        for extra in ("auto_config.json", "hns_rules.json", "alerts_sent.json"):
+            p = os.path.join(DATA_DIR, extra)
+            if os.path.exists(p):
+                try:
+                    with open(p, "r") as f:
+                        bundle[extra] = json.load(f)
+                except Exception:
+                    pass
+        body = {
+            "files": {
+                "pa_scanner_state.json": {
+                    "content": json.dumps(bundle, indent=2)
+                }
+            }
+        }
+        r = requests.patch(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
+            json=body,
+            timeout=25,
+        )
+        if r.status_code in (200, 201):
+            return True, "saved to cloud"
+        return False, f"gist error {r.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+def _ensure_local_from_cloud():
+    """On first boot after Cloud wipe, restore local data files from Gist if empty/missing."""
+    flag = os.path.join(DATA_DIR, ".cloud_restored")
+    # Always try if settings missing or watchlists missing
+    need = (not os.path.exists(SETTINGS_FILE)) or (not os.path.exists(WATCHLIST_FILE))
+    if not need and os.path.exists(flag):
+        return
+    bundle = _pull_gist_bundle()
+    if not bundle:
+        return
+    try:
+        for name, path in list(_PERSIST_KEYS.items()) + [
+            ("auto_config.json", os.path.join(DATA_DIR, "auto_config.json")),
+            ("hns_rules.json", os.path.join(DATA_DIR, "hns_rules.json")),
+            ("alerts_sent.json", os.path.join(DATA_DIR, "alerts_sent.json")),
+        ]:
+            if name in bundle:
+                os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                with open(path, "w") as f:
+                    json.dump(bundle[name], f, indent=2)
+        with open(flag, "w") as f:
+            f.write(datetime.now().isoformat())
+    except Exception:
+        pass
+
 def load_json(filepath, default):
+    # Restore from cloud once if local empty (Streamlit Cloud sleep wipe)
+    try:
+        _ensure_local_from_cloud()
+    except Exception:
+        pass
     if os.path.exists(filepath):
         try:
             with open(filepath, "r") as f:
-                return json.load(f)
-        except:
+                data = json.load(f)
+            if data is None:
+                return default
+            return data
+        except Exception:
             return default
     return default
 
 def save_json(filepath, data):
-    with open(filepath, "w") as f:
+    os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+    tmp = filepath + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+    os.replace(tmp, filepath)
+    # push durable cloud copy when configured
+    try:
+        _push_gist_bundle()
+    except Exception:
+        pass
+
+def export_all_backup():
+    """Build one dict with all persistent app data for download."""
+    bundle = {"version": 1, "exported_at": datetime.now().isoformat()}
+    for name, path in _PERSIST_KEYS.items():
+        bundle[name] = load_json(path, {})
+    for extra in ("auto_config.json", "hns_rules.json", "alerts_sent.json"):
+        p = os.path.join(DATA_DIR, extra)
+        if os.path.exists(p):
+            try:
+                with open(p, "r") as f:
+                    bundle[extra] = json.load(f)
+            except Exception:
+                pass
+    return bundle
+
+def import_all_backup(bundle):
+    """Restore from backup dict into local files + cloud."""
+    if not isinstance(bundle, dict):
+        return False, "invalid backup"
+    for name, path in list(_PERSIST_KEYS.items()) + [
+        ("auto_config.json", os.path.join(DATA_DIR, "auto_config.json")),
+        ("hns_rules.json", os.path.join(DATA_DIR, "hns_rules.json")),
+        ("alerts_sent.json", os.path.join(DATA_DIR, "alerts_sent.json")),
+    ]:
+        if name in bundle:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(bundle[name], f, indent=2)
+    try:
+        _push_gist_bundle()
+    except Exception:
+        pass
+    return True, "restored"
+
+
+# US stocks commonly traded by Indian investors (no .NS)
+US_TICKERS = {
+    "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX",
+    "AMD", "INTC", "ORCL", "CRM", "ADBE", "PYPL", "UBER", "COIN", "BA", "JPM",
+    "V", "MA", "WMT", "DIS", "NKE", "PFE", "KO", "PEP", "COST", "MCD",
+    "QQQ", "SPY", "DIA", "IWM", "USO", "GLD", "SLV",
+}
+
+
+def merge_permanent_watchlists(watchlists):
+    """Ensure permanent default symbols always stay in the list (user can still add more)."""
+    if not isinstance(watchlists, dict):
+        watchlists = dict(DEFAULT_WATCHLISTS)
+    for market, defaults in DEFAULT_WATCHLISTS.items():
+        cur = list(watchlists.get(market) or [])
+        have = set(cur)
+        for s in defaults:
+            if s not in have:
+                cur.append(s)
+                have.add(s)
+        watchlists[market] = cur
+    return watchlists
 
 def get_symbol_suffix(symbol, market):
     symbol = symbol.upper().strip()
     if symbol.startswith("^"):
-        return symbol  # indices like ^NSEI, ^NSEBANK, ^BSESN
+        return symbol  # indices like ^NSEI, ^NSEBANK, ^BSESN, ^NDX, ^IXIC
+    # Aliases → Yahoo symbols
+    aliases = {
+        "USOIL": "CL=F", "USOIL=X": "CL=F", "OIL": "CL=F", "CRUDE": "CL=F", "WTI": "CL=F", "CL": "CL=F",
+        "BRENTOIL": "BZ=F", "BRENT": "BZ=F",
+        "USD": "DX-Y.NYB", "DXY": "DX-Y.NYB", "DOLLAR": "DX-Y.NYB", "USDX": "DX-Y.NYB",
+        "NDX": "^NDX", "NASDAQ100": "^NDX", "NAS100": "^NDX", "USTECH": "QQQ", "US-TECH": "QQQ",
+        "NASDAQ": "^IXIC",
+        "XAUUSD": "XAUUSD=X", "XAU": "XAUUSD=X", "GOLD": "XAUUSD=X",
+        "XAGUSD": "XAGUSD=X", "XAG": "XAGUSD=X", "SILVER": "XAGUSD=X",
+    }
+    if symbol in aliases:
+        return aliases[symbol]
+    # Gold / metals
+    if symbol in ("XAUUSD", "XAUUSD=X", "XAU"):
+        return "XAUUSD=X"
+    if symbol in ("XAGUSD", "XAGUSD=X", "XAG"):
+        return "XAGUSD=X"
+    # Futures already correct
+    if symbol.endswith("=F"):
+        return symbol
+    # Known US tickers — never append .NS
+    if symbol in US_TICKERS or symbol.endswith(".US"):
+        return symbol.replace(".US", "")
     if market == "Indian Stocks":
         if not (symbol.endswith(".NS") or symbol.endswith(".BO")):
+            # already a US ticker typed under stocks
+            if symbol in US_TICKERS:
+                return symbol
             return symbol + ".NS"
     elif market == "Forex":
+        if symbol in US_TICKERS:
+            return symbol  # allow US stocks listed under forex by user request
         if not symbol.endswith("=X"):
             return symbol + "=X"
     elif market == "Crypto":
-        if not any(x in symbol for x in ["-USD", "-USDT", "-BTC"]):
+        if symbol in ("XAUUSD", "XAUUSD=X", "XAU"):
+            return "XAUUSD=X"
+        if not any(x in symbol for x in ["-USD", "-USDT", "-BTC", "=X"]):
             return symbol + "-USD"
     return symbol
 
@@ -1384,10 +1607,15 @@ _CHART_LOCK = threading.Lock()
 
 
 def save_json_atomic(path, data):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+    try:
+        _push_gist_bundle()
+    except Exception:
+        pass
 
 
 def settings_snapshot():
@@ -2406,7 +2634,8 @@ def reset_hns_rules():
 
 
 # ====================== DATA ======================
-watchlists = load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS)
+watchlists = merge_permanent_watchlists(load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS))
+save_json(WATCHLIST_FILE, watchlists)
 scanners = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
 _raw_settings = load_json(SETTINGS_FILE, {})
 settings = dict(DEFAULT_SETTINGS)
@@ -2937,9 +3166,68 @@ elif page == "alerts":
         st.number_input("Only alert if score is at least", min_value=0, max_value=100,
                         value=int(settings.get("telegram_min_score", 0)), step=5,
                         key="tg_min", on_change=_save_tg, args=("telegram_min_score", "tg_min"))
-        st.caption("Everything here saves the moment you change it and stays that way until you change it again. "
+        st.caption("Everything here saves the moment you change it. "
                    "Alerts go out automatically after every scan (SCAN NOW or Auto refresh) with the chart and full "
                    "details. The same setup is never sent twice.")
+
+    # ---------- Durable backup (fixes Streamlit Cloud reset) ----------
+    with kc("panel_backup"):
+        st.markdown('<div class="ptitle">💾 Data backup (prevents reset)</div>', unsafe_allow_html=True)
+        token, gist_id = _gist_creds()
+        if token and gist_id:
+            st.success("Cloud backup is ON — watchlists, Telegram & settings restore after app sleep.")
+        else:
+            st.warning(
+                "Streamlit Cloud **deletes local files** when the app sleeps. "
+                "Without cloud backup, watchlists and Telegram details can reset. "
+                "Use **Download backup** after every change, or set GitHub Gist secrets (see below)."
+            )
+        b1, b2 = st.columns(2)
+        with b1:
+            backup = export_all_backup()
+            st.download_button(
+                "⬇️ Download backup",
+                data=json.dumps(backup, indent=2),
+                file_name=f"pa_scanner_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                mime="application/json",
+                use_container_width=True,
+                key="dl_backup",
+            )
+        with b2:
+            if st.button("☁️ Save to cloud now", use_container_width=True, key="push_cloud"):
+                ok, msg = _push_gist_bundle()
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+        up = st.file_uploader("Restore from backup file", type=["json"], key="restore_upload")
+        if up is not None:
+            try:
+                bundle = json.loads(up.getvalue().decode("utf-8"))
+                ok, msg = import_all_backup(bundle)
+                if ok:
+                    st.success("Restored — reloading…")
+                    time.sleep(0.4)
+                    st.rerun()
+                else:
+                    st.error(msg)
+            except Exception as e:
+                st.error(f"Could not restore: {e}")
+        with st.expander("How to enable automatic cloud backup (recommended)"):
+            st.markdown("""
+1. Create a **GitHub** account (if you don't have one).
+2. Create a **Personal Access Token** (classic) with **gist** permission.
+3. Create an empty **secret Gist** on gist.github.com (add any file, create).
+4. Copy the Gist ID from the URL: `https://gist.github.com/you/**GIST_ID**`
+5. In Streamlit → your app → **Settings → Secrets**, paste:
+
+```toml
+PERSIST_GITHUB_TOKEN = "ghp_your_token_here"
+PERSIST_GIST_ID = "your_gist_id_here"
+```
+
+6. Reboot the app. After that, every save also writes to the Gist and restores after sleep.
+""")
 
         if st.button("📨 Send latest result as a test", use_container_width=True, key="tg_test"):
             _m, _entry = AUTO.latest_any()
@@ -2949,9 +3237,16 @@ elif page == "alerts":
                 st.warning("Run a scan first - the test sends your latest result.")
             else:
                 _sid = _entry["scanner"]
+                if _sid == 2:
+                    _rules_tg = hns_rules
+                elif _sid == 3:
+                    _rules_tg = dict(DEFAULT_STRICT_RULES)
+                    _rules_tg.update(load_json(STRICT_FILE, {}))
+                else:
+                    _rules_tg = active_rules
                 ok, mode, note = send_full_alert(
                     tg_token, tg_chat, _entry["results"][0], _sid, _m, _entry["tf"],
-                    hns_rules if _sid == 2 else active_rules, with_chart=bool(tg_chart),
+                    _rules_tg, with_chart=bool(tg_chart),
                 )
                 if ok and mode == "chart":
                     st.success("Sent with chart image ✅")
