@@ -1590,6 +1590,215 @@ AUTO_CFG_FILE = os.path.join(DATA_DIR, "auto_config.json")
 SENT_FILE = os.path.join(DATA_DIR, "alerts_sent.json")
 AUTO_MARKETS = ["Indian Stocks", "Crypto", "Forex"]
 INTERVAL_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+
+# ====================== NIFTY DAY BACKTEST ======================
+def _fetch_history_for_day(symbol, day, interval):
+    """Load OHLCV with lookback before `day` so S/R and structure work."""
+    import pandas as pd
+    day = pd.Timestamp(day).tz_localize(None)
+    start = day - pd.Timedelta(days=10)
+    end = day + pd.Timedelta(days=1)
+    tf_map = {
+        "1m": "1m", "3m": "2m", "5m": "5m", "15m": "15m",
+        "1h": "1h", "4h": "1h", "1d": "1d", "30m": "30m",
+    }
+    yf_interval = tf_map.get(interval, interval)
+    # yfinance: 1m only ~7 days; 5m/15m longer
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(start=start.strftime("%Y-%m-%d"), end=(end + pd.Timedelta(days=1)).strftime("%Y-%m-%d"), interval=yf_interval)
+    if df is None or len(df) < 30:
+        # fallback period style
+        period = "7d" if interval in ("1m", "3m", "5m") else "60d"
+        df = ticker.history(period=period, interval=yf_interval)
+    if df is None or len(df) < 30:
+        return None
+    df = df.dropna()
+    return df
+
+def _ist_date(ts):
+    try:
+        if hasattr(ts, "to_pydatetime"):
+            ts = ts.to_pydatetime()
+        if getattr(ts, "tzinfo", None) is not None:
+            ts = ts.astimezone(IST)
+        return ts.date()
+    except Exception:
+        return None
+
+def check_setup_at(df, conf_i, rules=None, strict=False):
+    """Evaluate PA setup completing on candle conf_i (confirmation). Returns result dict or None."""
+    if conf_i < 25 or conf_i >= len(df):
+        return None
+    break_i = conf_i - 1
+    rules = rules or {}
+    break_candle = df.iloc[break_i]
+    conf_candle = df.iloc[conf_i]
+    break_close = float(break_candle["Close"])
+    conf_close = float(conf_candle["Close"])
+    window = df.iloc[: conf_i + 1]
+    supports, resistances = find_key_levels(window, lookback=min(55, len(window)))
+    sr_pct = float(rules.get("sr_pct", 0.35 if strict else 0.30))
+
+    def _pack(direction, level, near_name, score, trend_pts, touches=0):
+        return {
+            "symbol": getattr(df, "attrs", {}).get("symbol", "^NSEI"),
+            "score": min(int(score), 100),
+            "full_match": True,
+            "trend": "Uptrend" if direction == "Bullish" else "Downtrend",
+            "direction": direction,
+            "price": round(conf_close, 5),
+            "interval": "",
+            "near_level": near_name,
+            "level_price": round(level, 5),
+            "break_level": round(level, 5),
+            "break_time_ist": to_ist_str(df.index[break_i]),
+            "setup_time_ist": to_ist_str(df.index[conf_i]),
+            "scanned_at_ist": to_ist_str(df.index[conf_i]),
+            "scores": {"sr": 90, "structure": 90, "volume_dry": 50, "confirmation": 90},
+            "details": {"strict": strict, "touches": touches},
+            "trend_points": trend_pts,
+            "timestamp": str(df.index[conf_i]),
+            "df": window.tail(60),
+        }
+
+    # ----- BULLISH -----
+    near_res = price_near_level(break_close, resistances, pct=sr_pct)
+    if near_res is not None:
+        level = near_res
+        ok_break = break_close > level * (1.0003 if not strict else 1.0)
+        if strict:
+            ok_body = is_healthy_break_strict(break_candle, "up") if "is_healthy_break_strict" in globals() else is_healthy_break_candle(break_candle, "up")
+        else:
+            ok_body = is_healthy_break_candle(break_candle, "up")
+        if ok_break and ok_body:
+            pre = df.iloc[: break_i + 1]
+            struct_ok = has_higher_low(pre, lookback=30)
+            if strict and rules.get("require_structure", True) and not struct_ok:
+                pass
+            elif (not strict) and not struct_ok:
+                pass
+            else:
+                if strict:
+                    rej_ok = is_rejection_strict(conf_candle, "up") if "is_rejection_strict" in globals() else is_rejection_or_decision_candle(conf_candle, "up")
+                else:
+                    rej_ok = is_rejection_or_decision_candle(conf_candle, "up")
+                if rej_ok:
+                    prev_vol = float(df["Volume"].iloc[break_i])
+                    conf_vol = float(df["Volume"].iloc[conf_i])
+                    vol_ok = True
+                    if rules.get("require_high_volume_rejection", True):
+                        if prev_vol > 0 or conf_vol > 0:
+                            need = conf_vol >= prev_vol * float(rules.get("vol_ratio", 1.0 if not strict else 1.2)) if strict else conf_vol > prev_vol
+                            vol_ok = bool(need)
+                    touches = 0
+                    if strict and rules.get("require_level_touches", True):
+                        touches = count_level_touches(pre, level, pct=sr_pct, lookback=50) if "count_level_touches" in dir() else 2
+                        if touches < int(rules.get("min_level_touches", 2)):
+                            vol_ok = False
+                    if strict and rules.get("require_rejection_at_level", True):
+                        if "rejection_at_level" in dir() and not rejection_at_level(conf_candle, level, pct=sr_pct + 0.1):
+                            vol_ok = False
+                    if strict and rules.get("require_volume_dry", True):
+                        if "volume_drying" in dir() and not volume_drying(df, break_i, window=6):
+                            vol_ok = False
+                    if vol_ok:
+                        score = 70 + (15 if conf_vol > prev_vol and prev_vol > 0 else 0)
+                        seg = pre.tail(30)
+                        sh, sl = detect_swing_points(seg, left=2, right=2)
+                        tpts = []
+                        if len(sl) >= 2:
+                            tpts = [[str(seg.index[sl[-2][0]]), float(sl[-2][1])], [str(seg.index[sl[-1][0]]), float(sl[-1][1])]]
+                        return _pack("Bullish", level, "Resistance", score, tpts, touches)
+
+    # ----- BEARISH -----
+    near_sup = price_near_level(break_close, supports, pct=sr_pct)
+    if near_sup is not None:
+        level = near_sup
+        ok_break = break_close < level * (0.9997 if not strict else 1.0)
+        if strict:
+            ok_body = is_healthy_break_strict(break_candle, "down") if "is_healthy_break_strict" in globals() else is_healthy_break_candle(break_candle, "down")
+        else:
+            ok_body = is_healthy_break_candle(break_candle, "down")
+        if ok_break and ok_body:
+            pre = df.iloc[: break_i + 1]
+            struct_ok = has_lower_high(pre, lookback=30)
+            if struct_ok or (strict and not rules.get("require_structure", True)):
+                if strict:
+                    rej_ok = is_rejection_strict(conf_candle, "down") if "is_rejection_strict" in globals() else is_rejection_or_decision_candle(conf_candle, "down")
+                else:
+                    rej_ok = is_rejection_or_decision_candle(conf_candle, "down")
+                if rej_ok:
+                    prev_vol = float(df["Volume"].iloc[break_i])
+                    conf_vol = float(df["Volume"].iloc[conf_i])
+                    vol_ok = True
+                    if rules.get("require_high_volume_rejection", True):
+                        if prev_vol > 0 or conf_vol > 0:
+                            if strict:
+                                vol_ok = conf_vol >= prev_vol * float(rules.get("vol_ratio", 1.2))
+                            else:
+                                vol_ok = conf_vol > prev_vol
+                    if vol_ok:
+                        score = 70 + (15 if conf_vol > prev_vol and prev_vol > 0 else 0)
+                        seg = pre.tail(30)
+                        sh, sl = detect_swing_points(seg, left=2, right=2)
+                        tpts = []
+                        if len(sh) >= 2:
+                            tpts = [[str(seg.index[sh[-2][0]]), float(sh[-2][1])], [str(seg.index[sh[-1][0]]), float(sh[-1][1])]]
+                        return _pack("Bearish", level, "Support", score, tpts)
+
+    return None
+
+
+def backtest_nifty_day(day, interval="5m", scanner_id=1, symbol="^NSEI"):
+    """
+    Scan one full session day for Nifty (or any symbol).
+    Returns (hits, error_message).
+    Each hit includes setup_time_ist when the confirmation candle formed.
+    """
+    rules = None
+    strict = scanner_id == 3
+    if scanner_id == 3:
+        rules = dict(DEFAULT_STRICT_RULES)
+        rules.update(load_json(STRICT_FILE, {}))
+    elif scanner_id == 1:
+        sc = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
+        nm = list(sc.keys())[0] if sc else "My Price Action Scanner"
+        rules = sc.get(nm, DEFAULT_SCANNERS["My Price Action Scanner"]).get("rules", {})
+    else:
+        return [], "Backtest supports Scanner 1 (Price Action) and Scanner 3 (Strict) only for now."
+
+    df = _fetch_history_for_day(symbol, day, interval)
+    if df is None or len(df) < 40:
+        return [], "Not enough data. For 1m use a date within last ~7 days; 5m/15m allow longer history."
+
+    # Filter indices belonging to selected calendar day in IST
+    target = pd.Timestamp(day).date()
+    day_indices = []
+    for i, ts in enumerate(df.index):
+        d = _ist_date(ts)
+        if d == target:
+            day_indices.append(i)
+    if not day_indices:
+        return [], f"No candles found for {day} on {symbol} ({interval}). Market holiday or data gap."
+
+    hits = []
+    seen = set()
+    for conf_i in day_indices:
+        res = check_setup_at(df, conf_i, rules=rules, strict=strict)
+        if not res:
+            continue
+        key = (res.get("setup_time_ist"), res.get("direction"), res.get("level_price"))
+        if key in seen:
+            continue
+        seen.add(key)
+        res["symbol"] = symbol
+        res["interval"] = interval
+        res["backtest_day"] = str(target)
+        hits.append(res)
+    hits = sorted(hits, key=lambda x: x.get("setup_time_ist") or "")
+    return hits, None
+
+
 SCANNER_LABELS = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders", 3: "Scanner 3 · Strict PA"}
 
 # defaults: timeframe 15m, auto-refresh interval 15m, auto refresh OFF until the user turns it on
@@ -3286,6 +3495,148 @@ PERSIST_GIST_ID = "your_gist_id_here"
 # ====================================================================
 #                                HISTORY
 # ====================================================================
+elif page == "backtest":
+    with kc("panel_bt_head"):
+        page_title("Backtest", "Pick market, symbol & date — see when setups formed")
+
+    # Same market tabs as homepage
+    dyn_css += market_picker()
+    market = st.session_state.get("market", "Indian Stocks")
+    if market not in MARKET_ORDER:
+        market = "Indian Stocks"
+    dyn_css += scanner_picker()
+    scanner_id = st.session_state.get("scanner", 1)
+    current_list = list(watchlists.get(market, []) or [])
+
+    with kc("panel_bt_controls"):
+        # Symbol: watchlist dropdown + type your own
+        st.markdown('<div class="ptitle">Symbol</div>', unsafe_allow_html=True)
+        sym_options = current_list if current_list else ["^NSEI"]
+        labels = []
+        for s in sym_options:
+            labels.append(s.replace(".NS", "").replace("-USD", "").replace("=X", ""))
+        pick = st.selectbox(
+            "From watchlist",
+            options=list(range(len(sym_options))),
+            format_func=lambda i: f"{labels[i]}  ({sym_options[i]})",
+            key="bt_sym_pick",
+            label_visibility="collapsed",
+        )
+        bt_sym = sym_options[pick]
+        custom = st.text_input(
+            "Or type symbol",
+            value="",
+            placeholder="e.g. RELIANCE or ^NSEI or XAUUSD",
+            key="bt_sym_type",
+        )
+        if custom and custom.strip():
+            bt_sym = get_symbol_suffix(custom.strip(), market)
+
+        # Date with calendar
+        st.markdown('<div class="ptitle">Date</div>', unsafe_allow_html=True)
+        bt_day = st.date_input(
+            "Trading day",
+            value=datetime.now().date(),
+            key="bt_day",
+            label_visibility="collapsed",
+        )
+
+        # Timeframe same as homepage
+        with kc("tf_row"):
+            c1, c2 = st.columns([1.2, 1])
+            with c1:
+                st.markdown('<div class="lbl-tf">⏱ Timeframe</div>', unsafe_allow_html=True)
+            with c2:
+                bt_tf = st.selectbox(
+                    "Timeframe",
+                    TF_OPTIONS,
+                    index=TF_OPTIONS.index("5m") if "5m" in TF_OPTIONS else 0,
+                    key="bt_tf",
+                    label_visibility="collapsed",
+                )
+
+        if scanner_id == 2:
+            st.caption("⚠ Head & Shoulders backtest not available — use Scanner 1 or Strict.")
+        st.caption("1m data ≈ last 7 days only (Yahoo). Use 5m/15m for older dates.")
+
+        # Progress bar (same style as homepage)
+        progress_slot = st.empty()
+        status_slot = st.empty()
+        progress_slot.markdown(progress_html(0), unsafe_allow_html=True)
+        st.markdown('<div style="height:0.6rem"></div>', unsafe_allow_html=True)
+
+        run_bt = st.button("SCAN NOW", type="primary", use_container_width=True, key="bt_scan_now")
+
+    if run_bt:
+        if scanner_id == 2:
+            st.warning("Switch to Scanner 1 or Scanner 3 for backtest.")
+            st.session_state["bt_hits"] = []
+            st.session_state["bt_err"] = "Scanner 2 not supported in backtest"
+        else:
+            # Support multi: if user left type empty, can scan one symbol (selected)
+            symbols_to_run = [bt_sym]
+            all_hits = []
+            err_msgs = []
+            n = len(symbols_to_run)
+            for i, sym in enumerate(symbols_to_run):
+                status_slot.caption(f"Scanning {sym} ({i+1}/{n})")
+                progress_slot.markdown(progress_html(i / max(n, 1)), unsafe_allow_html=True)
+                hits, err = backtest_nifty_day(str(bt_day), interval=bt_tf, scanner_id=scanner_id, symbol=sym)
+                if err:
+                    err_msgs.append(f"{sym}: {err}")
+                if hits:
+                    all_hits.extend(hits)
+                progress_slot.markdown(progress_html((i + 1) / max(n, 1)), unsafe_allow_html=True)
+            status_slot.caption("Scan complete")
+            all_hits = sorted(all_hits, key=lambda x: (x.get("setup_time_ist") or "", x.get("symbol") or ""))
+            st.session_state["bt_hits"] = all_hits
+            st.session_state["bt_err"] = " | ".join(err_msgs) if err_msgs and not all_hits else None
+            st.session_state["bt_meta"] = {
+                "day": str(bt_day), "tf": bt_tf, "sym": bt_sym,
+                "scanner": scanner_id, "market": market,
+            }
+
+    err = st.session_state.get("bt_err")
+    hits = st.session_state.get("bt_hits") or []
+    meta = st.session_state.get("bt_meta") or {}
+    if err:
+        st.error(err)
+    if meta and not err:
+        st.caption(
+            f"{meta.get('sym')} • {meta.get('day')} • {meta.get('tf')} • "
+            f"{SCANNER_LABELS.get(meta.get('scanner'), '')} • **{len(hits)}** setup(s)"
+        )
+
+    # Results with charts (images)
+    if hits:
+        with kc("panel_bt_results"):
+            st.markdown('<div class="ptitle">Results</div>', unsafe_allow_html=True)
+            rows = []
+            for idx, res in enumerate(hits):
+                st.markdown(result_card_html(res, detailed=True), unsafe_allow_html=True)
+                with st.expander(
+                    f"📈 Chart • {res.get('symbol','')} • {res.get('setup_time_ist','')} • {res.get('direction','')}",
+                    expanded=(idx == 0),
+                ):
+                    try:
+                        render_chart(res)
+                    except Exception as e:
+                        st.caption(f"Chart unavailable: {e}")
+                rows.append({
+                    "Setup time (IST)": res.get("setup_time_ist"),
+                    "Break time (IST)": res.get("break_time_ist"),
+                    "Symbol": res.get("symbol"),
+                    "Direction": res.get("direction"),
+                    "Near": res.get("near_level"),
+                    "Level": res.get("level_price"),
+                    "Price": res.get("price"),
+                    "Score": res.get("score"),
+                })
+            st.markdown('<div class="ptitle">Summary table</div>', unsafe_allow_html=True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    elif meta and not err:
+        st.info("No setups matched on this day for the selected symbol / scanner / timeframe.")
+
 elif page == "history":
     with kc("panel_hist_head"):
         page_title("Scan History", "Your last 30 scans, newest first")
@@ -3322,20 +3673,20 @@ if MODERN:
         ("dashboard", ":material/grid_view:", "Dashboard"),
         ("rules", ":material/tune:", "Rules"),
         ("results", ":material/query_stats:", ""),
+        ("backtest", ":material/date_range:", "Backtest"),
         ("alerts", ":material/notifications:", "Alerts"),
-        ("history", ":material/history:", "History"),
     ]
 else:
     NAV_ITEMS = [
         ("dashboard", "▦", "Dashboard"),
         ("rules", "📐", "Rules"),
         ("results", "📊", ""),
+        ("backtest", "📅", "Backtest"),
         ("alerts", "🔔", "Alerts"),
-        ("history", "🕒", "History"),
     ]
 
 with kc("bottomnav"):
-    ncols = st.columns([1.05, 1, 0.95, 1, 1])
+    ncols = st.columns(len(NAV_ITEMS))
     for col, (pid, icon, text) in zip(ncols, NAV_ITEMS):
         with col:
             label = f"{icon}  \n{text}" if text else icon
