@@ -5,3 +5,6 @@ numpy
 plotly
 requests
 matplotlib
+smartapi-python
+pyotp
+logzero
