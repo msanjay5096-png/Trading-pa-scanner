@@ -11,6 +11,8 @@ import time
 import requests
 from datetime import timezone, timedelta
 
+import pa_engine   # Scanner 4 (A+ Retest) + backtester.  File must sit next to app.py
+
 IST = timezone(timedelta(hours=5, minutes=30))
 
 def to_ist_str(ts):
@@ -40,8 +42,11 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # ====================== DEFAULT DATA ======================
 DEFAULT_WATCHLISTS = {
     "Indian Stocks": ['^NSEI', '^NSEBANK', '^BSESN', 'CL=F', 'BZ=F', 'DX-Y.NYB', '^NDX', 'QQQ', '^IXIC', 'RELIANCE.NS', 'HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS', 'KOTAKBANK.NS', 'INDUSINDBK.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'SHRIRAMFIN.NS', 'HDFCLIFE.NS', 'SBILIFE.NS', 'JIOFIN.NS', 'TCS.NS', 'INFY.NS', 'HCLTECH.NS', 'WIPRO.NS', 'TECHM.NS', 'LTIM.NS', 'BHARTIARTL.NS', 'ITC.NS', 'HINDUNILVR.NS', 'NESTLEIND.NS', 'TATACONSUM.NS', 'TITAN.NS', 'TRENT.NS', 'ETERNAL.NS', 'LT.NS', 'ULTRACEMCO.NS', 'GRASIM.NS', 'ADANIENT.NS', 'ADANIPORTS.NS', 'NTPC.NS', 'POWERGRID.NS', 'ONGC.NS', 'COALINDIA.NS', 'BEL.NS', 'TATASTEEL.NS', 'JSWSTEEL.NS', 'HINDALCO.NS', 'MARUTI.NS', 'M&M.NS', 'BAJAJ-AUTO.NS', 'EICHERMOT.NS', 'ASIANPAINT.NS', 'SUNPHARMA.NS', 'DRREDDY.NS', 'CIPLA.NS', 'APOLLOHOSP.NS', 'BANKBARODA.NS', 'PNB.NS', 'CANBK.NS', 'FEDERALBNK.NS', 'IDFCFIRSTB.NS', 'AUBANK.NS', 'BANDHANBNK.NS', 'CHOLAFIN.NS', 'MUTHOOTFIN.NS', 'LICHSGFIN.NS', 'PFC.NS', 'RECLTD.NS', 'SBICARD.NS', 'ICICIGI.NS', 'ICICIPRULI.NS', 'HDFCAMC.NS', 'PERSISTENT.NS', 'COFORGE.NS', 'MPHASIS.NS', 'KPITTECH.NS', 'HEROMOTOCO.NS', 'TVSMOTOR.NS', 'ASHOKLEY.NS', 'BOSCHLTD.NS', 'MOTHERSON.NS', 'BPCL.NS', 'IOC.NS', 'GAIL.NS', 'TATAPOWER.NS', 'ADANIGREEN.NS', 'ADANIPOWER.NS', 'VEDL.NS', 'SAIL.NS', 'NMDC.NS', 'JINDALSTEL.NS', 'BRITANNIA.NS', 'DABUR.NS', 'GODREJCP.NS', 'PIDILITIND.NS', 'DMART.NS', 'VBL.NS', 'HAVELLS.NS', 'POLYCAB.NS', 'DIXON.NS', 'DIVISLAB.NS', 'LUPIN.NS', 'AUROPHARMA.NS', 'TORNTPHARM.NS', 'ZYDUSLIFE.NS', 'AMBUJACEM.NS', 'SIEMENS.NS', 'ABB.NS', 'HAL.NS', 'BHEL.NS', 'DLF.NS', 'GODREJPROP.NS', 'LODHA.NS', 'INDIGO.NS', 'IRCTC.NS', 'INDUSTOWER.NS', 'IDEA.NS', 'NAUKRI.NS', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NVDA', 'TSLA', 'NFLX', 'AMD', 'INTC', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'UBER', 'COIN', 'BA', 'JPM', 'V', 'MA', 'WMT', 'DIS'],
-    "Crypto": ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD', 'DOGE-USD', 'AVAX-USD', 'DOT-USD', 'MATIC-USD', 'LINK-USD', 'LTC-USD', 'ATOM-USD', 'UNI-USD', 'APT-USD', 'XAUUSD=X'],
-    "Forex": ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDINR=X', 'AUDUSD=X', 'USDCAD=X', 'USDCHF=X', 'NZDUSD=X', 'EURJPY=X', 'GBPJPY=X', 'EURGBP=X', 'AUDJPY=X', 'EURAUD=X', 'GBPAUD=X', 'XAUUSD=X', 'CL=F', 'DX-Y.NYB', '^NDX', 'QQQ'],
+    # Crypto section also carries gold / silver / oil / US indices (the symbols you trade on the same screen)
+    "Crypto": ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD', 'DOGE-USD', 'AVAX-USD', 'DOT-USD', 'POL-USD', 'LINK-USD', 'LTC-USD', 'ATOM-USD', 'UNI-USD', 'APT-USD',
+               'XAUUSD=X', 'XAGUSD=X', 'GC=F', 'SI=F', 'CL=F', 'BZ=F', 'NG=F', 'HG=F', 'PL=F',
+               '^GSPC', '^DJI', '^NDX', '^IXIC', 'DX-Y.NYB'],
+    "Forex": ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDINR=X', 'AUDUSD=X', 'USDCAD=X', 'USDCHF=X', 'NZDUSD=X', 'EURJPY=X', 'GBPJPY=X', 'EURGBP=X', 'AUDJPY=X', 'EURAUD=X', 'GBPAUD=X', 'XAUUSD=X', 'XAGUSD=X', 'CL=F', 'DX-Y.NYB', '^NDX', 'QQQ'],
 }
 
 
@@ -322,9 +327,13 @@ def get_symbol_suffix(symbol, market):
     aliases = {
         "USOIL": "CL=F", "USOIL=X": "CL=F", "OIL": "CL=F", "CRUDE": "CL=F", "WTI": "CL=F", "CL": "CL=F",
         "BRENTOIL": "BZ=F", "BRENT": "BZ=F",
+        "NATGAS": "NG=F", "NGAS": "NG=F", "GAS": "NG=F",
+        "COPPER": "HG=F", "PLATINUM": "PL=F",
         "USD": "DX-Y.NYB", "DXY": "DX-Y.NYB", "DOLLAR": "DX-Y.NYB", "USDX": "DX-Y.NYB",
-        "NDX": "^NDX", "NASDAQ100": "^NDX", "NAS100": "^NDX", "USTECH": "QQQ", "US-TECH": "QQQ",
+        "NDX": "^NDX", "NASDAQ100": "^NDX", "NAS100": "^NDX", "US100": "^NDX", "USTECH": "QQQ", "US-TECH": "QQQ",
         "NASDAQ": "^IXIC",
+        "US30": "^DJI", "DOW": "^DJI", "DJI": "^DJI",
+        "US500": "^GSPC", "SPX": "^GSPC", "SP500": "^GSPC", "SPX500": "^GSPC",
         "XAUUSD": "XAUUSD=X", "XAU": "XAUUSD=X", "GOLD": "XAUUSD=X",
         "XAGUSD": "XAGUSD=X", "XAG": "XAGUSD=X", "SILVER": "XAGUSD=X",
     }
@@ -1418,6 +1427,13 @@ def make_alert_chart_png(res):
                 ax.axhline(s_, color=dn, linestyle=":", linewidth=1.5)
                 ax.text(n - 1, s_, f"Stop {s_:g} ", color=dn, fontsize=9, ha="right", va="bottom", fontweight="bold")
                 levels_for_ylim.append(s_)
+        elif res.get("stop") is not None and res.get("target") is not None:     # Scanner 4: stop + target lines
+            t_, s_ = float(res["target"]), float(res["stop"])
+            ax.axhline(t_, color=up, linestyle=":", linewidth=1.5)
+            ax.text(n - 1, t_, f"Target {t_:g} ", color=up, fontsize=9, ha="right", va="bottom", fontweight="bold")
+            ax.axhline(s_, color=dn, linestyle=":", linewidth=1.5)
+            ax.text(n - 1, s_, f"Stop {s_:g} ", color=dn, fontsize=9, ha="right", va="bottom", fontweight="bold")
+            levels_for_ylim += [t_, s_]
 
         # mark break + setup candles
         labels_ist = [to_ist_str(ts) for ts in df.index]
@@ -1485,7 +1501,8 @@ def build_alert_text(res, scanner_id, market, timeframe, rules):
     bull = res.get("direction") == "Bullish"
     dot = "🟢" if bull else "🔴"
     sym = e(str(res.get("symbol", "")))
-    sc_name = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head &amp; Shoulders", 3: "Scanner 3 · Strict PA"}.get(scanner_id, "Scanner")
+    sc_name = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head &amp; Shoulders", 3: "Scanner 3 · Strict PA",
+               4: "Scanner 4 · A+ Retest"}.get(scanner_id, "Scanner")
 
     head = (f"🚨 <b>{sym}</b>  {dot} {e(str(res.get('pattern') or res.get('direction','')))}"
             f"{' (' + e(str(res.get('direction',''))) + ')' if res.get('pattern') else ''}\n"
@@ -1497,7 +1514,9 @@ def build_alert_text(res, scanner_id, market, timeframe, rules):
         lines.append(f"Neckline: <b>{res.get('level_price','—')}</b>")
         lines.append(f"Target: <b>{res.get('target','—')}</b>   Stop: <b>{res.get('stop','—')}</b>   R:R <b>{res.get('rr','—')}</b>")
     else:
-        lines.append(f"{e(str(res.get('near_level','Level')))}: <b>{res.get('level_price','—')}</b>  •  Trend: {e(str(res.get('trend','')))}")
+        lines.append(f"{e(str(res.get('near_level','Level')))}: <b>{res.get('level_price','—')}</b>  •  {e(str(res.get('trend','')))}")
+        if res.get("stop") is not None:
+            lines.append(f"Stop: <b>{res.get('stop')}</b>   Target: <b>{res.get('target','—')}</b>   R:R <b>{res.get('rr','—')}</b>")
     lines.append(f"Break candle: {e(str(res.get('break_time_ist','—')))}")
     lines.append(f"Setup candle: {e(str(res.get('setup_time_ist','—')))}")
     lines.append(f"Scanned: {e(str(res.get('scanned_at_ist','—')))}")
@@ -1521,6 +1540,16 @@ def build_alert_text(res, scanner_id, market, timeframe, rules):
         lines.append(f"{'✅' if d.get('retest') else '➖'} Neckline retest")
         lines.append("✅ Strong breakout candle closed beyond neckline" if rules.get("require_healthy_break", True)
                      else "✅ Closed beyond neckline")
+    elif scanner_id == 4:
+        d = res.get("details") or {}
+        lines.append("<b>A+ checks</b>")
+        lines.append(f"✅ Zone tested {d.get('touches','–')}x before the breakout")
+        lines.append(f"✅ Strong breakout candle, volume x{d.get('vol_ratio','–')}")
+        lines.append(f"{'✅' if d.get('dry') else '➖'} Pullback on low volume")
+        lines.append("✅ Retest of the broken zone held, confirmation candle closed beyond it")
+        lines.append(f"{'✅' if d.get('trend_ok') else '➖'} Trend aligned (EMA20/50)")
+        lines.append(f"{'✅' if d.get('profile_conf') else '➖'} Zone matches volume-profile level (POC/VAH/VAL)")
+        lines.append(f"Room to next level: {d.get('room_r','–')}R")
     else:
         lines.append("<b>Rules passed</b>")
         shown = 0
@@ -1589,226 +1618,33 @@ import threading
 AUTO_CFG_FILE = os.path.join(DATA_DIR, "auto_config.json")
 SENT_FILE = os.path.join(DATA_DIR, "alerts_sent.json")
 AUTO_MARKETS = ["Indian Stocks", "Crypto", "Forex"]
-INTERVAL_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+INTERVAL_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440}
 
-# ====================== NIFTY DAY BACKTEST ======================
-def _fetch_history_for_day(symbol, day, interval):
-    """Load OHLCV with lookback before `day` so S/R and structure work."""
-    import pandas as pd
-    day = pd.Timestamp(day).tz_localize(None)
-    start = day - pd.Timedelta(days=10)
-    end = day + pd.Timedelta(days=1)
-    tf_map = {
-        "1m": "1m", "3m": "2m", "5m": "5m", "15m": "15m",
-        "1h": "1h", "4h": "1h", "1d": "1d", "30m": "30m",
-    }
-    yf_interval = tf_map.get(interval, interval)
-    # yfinance: 1m only ~7 days; 5m/15m longer
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(start=start.strftime("%Y-%m-%d"), end=(end + pd.Timedelta(days=1)).strftime("%Y-%m-%d"), interval=yf_interval)
-    if df is None or len(df) < 30:
-        # fallback period style
-        period = "7d" if interval in ("1m", "3m", "5m") else "60d"
-        df = ticker.history(period=period, interval=yf_interval)
-    if df is None or len(df) < 30:
-        return None
-    df = df.dropna()
-    return df
-
-def _ist_date(ts):
-    try:
-        if hasattr(ts, "to_pydatetime"):
-            ts = ts.to_pydatetime()
-        if getattr(ts, "tzinfo", None) is not None:
-            ts = ts.astimezone(IST)
-        return ts.date()
-    except Exception:
-        return None
-
-def check_setup_at(df, conf_i, rules=None, strict=False):
-    """Evaluate PA setup completing on candle conf_i (confirmation). Returns result dict or None."""
-    if conf_i < 25 or conf_i >= len(df):
-        return None
-    break_i = conf_i - 1
-    rules = rules or {}
-    break_candle = df.iloc[break_i]
-    conf_candle = df.iloc[conf_i]
-    break_close = float(break_candle["Close"])
-    conf_close = float(conf_candle["Close"])
-    window = df.iloc[: conf_i + 1]
-    supports, resistances = find_key_levels(window, lookback=min(55, len(window)))
-    sr_pct = float(rules.get("sr_pct", 0.35 if strict else 0.30))
-
-    def _pack(direction, level, near_name, score, trend_pts, touches=0):
-        return {
-            "symbol": getattr(df, "attrs", {}).get("symbol", "^NSEI"),
-            "score": min(int(score), 100),
-            "full_match": True,
-            "trend": "Uptrend" if direction == "Bullish" else "Downtrend",
-            "direction": direction,
-            "price": round(conf_close, 5),
-            "interval": "",
-            "near_level": near_name,
-            "level_price": round(level, 5),
-            "break_level": round(level, 5),
-            "break_time_ist": to_ist_str(df.index[break_i]),
-            "setup_time_ist": to_ist_str(df.index[conf_i]),
-            "scanned_at_ist": to_ist_str(df.index[conf_i]),
-            "scores": {"sr": 90, "structure": 90, "volume_dry": 50, "confirmation": 90},
-            "details": {"strict": strict, "touches": touches},
-            "trend_points": trend_pts,
-            "timestamp": str(df.index[conf_i]),
-            "df": window.tail(60),
-        }
-
-    # ----- BULLISH -----
-    near_res = price_near_level(break_close, resistances, pct=sr_pct)
-    if near_res is not None:
-        level = near_res
-        ok_break = break_close > level * (1.0003 if not strict else 1.0)
-        if strict:
-            ok_body = is_healthy_break_strict(break_candle, "up") if "is_healthy_break_strict" in globals() else is_healthy_break_candle(break_candle, "up")
-        else:
-            ok_body = is_healthy_break_candle(break_candle, "up")
-        if ok_break and ok_body:
-            pre = df.iloc[: break_i + 1]
-            struct_ok = has_higher_low(pre, lookback=30)
-            if strict and rules.get("require_structure", True) and not struct_ok:
-                pass
-            elif (not strict) and not struct_ok:
-                pass
-            else:
-                if strict:
-                    rej_ok = is_rejection_strict(conf_candle, "up") if "is_rejection_strict" in globals() else is_rejection_or_decision_candle(conf_candle, "up")
-                else:
-                    rej_ok = is_rejection_or_decision_candle(conf_candle, "up")
-                if rej_ok:
-                    prev_vol = float(df["Volume"].iloc[break_i])
-                    conf_vol = float(df["Volume"].iloc[conf_i])
-                    vol_ok = True
-                    if rules.get("require_high_volume_rejection", True):
-                        if prev_vol > 0 or conf_vol > 0:
-                            need = conf_vol >= prev_vol * float(rules.get("vol_ratio", 1.0 if not strict else 1.2)) if strict else conf_vol > prev_vol
-                            vol_ok = bool(need)
-                    touches = 0
-                    if strict and rules.get("require_level_touches", True):
-                        touches = count_level_touches(pre, level, pct=sr_pct, lookback=50) if "count_level_touches" in dir() else 2
-                        if touches < int(rules.get("min_level_touches", 2)):
-                            vol_ok = False
-                    if strict and rules.get("require_rejection_at_level", True):
-                        if "rejection_at_level" in dir() and not rejection_at_level(conf_candle, level, pct=sr_pct + 0.1):
-                            vol_ok = False
-                    if strict and rules.get("require_volume_dry", True):
-                        if "volume_drying" in dir() and not volume_drying(df, break_i, window=6):
-                            vol_ok = False
-                    if vol_ok:
-                        score = 70 + (15 if conf_vol > prev_vol and prev_vol > 0 else 0)
-                        seg = pre.tail(30)
-                        sh, sl = detect_swing_points(seg, left=2, right=2)
-                        tpts = []
-                        if len(sl) >= 2:
-                            tpts = [[str(seg.index[sl[-2][0]]), float(sl[-2][1])], [str(seg.index[sl[-1][0]]), float(sl[-1][1])]]
-                        return _pack("Bullish", level, "Resistance", score, tpts, touches)
-
-    # ----- BEARISH -----
-    near_sup = price_near_level(break_close, supports, pct=sr_pct)
-    if near_sup is not None:
-        level = near_sup
-        ok_break = break_close < level * (0.9997 if not strict else 1.0)
-        if strict:
-            ok_body = is_healthy_break_strict(break_candle, "down") if "is_healthy_break_strict" in globals() else is_healthy_break_candle(break_candle, "down")
-        else:
-            ok_body = is_healthy_break_candle(break_candle, "down")
-        if ok_break and ok_body:
-            pre = df.iloc[: break_i + 1]
-            struct_ok = has_lower_high(pre, lookback=30)
-            if struct_ok or (strict and not rules.get("require_structure", True)):
-                if strict:
-                    rej_ok = is_rejection_strict(conf_candle, "down") if "is_rejection_strict" in globals() else is_rejection_or_decision_candle(conf_candle, "down")
-                else:
-                    rej_ok = is_rejection_or_decision_candle(conf_candle, "down")
-                if rej_ok:
-                    prev_vol = float(df["Volume"].iloc[break_i])
-                    conf_vol = float(df["Volume"].iloc[conf_i])
-                    vol_ok = True
-                    if rules.get("require_high_volume_rejection", True):
-                        if prev_vol > 0 or conf_vol > 0:
-                            if strict:
-                                vol_ok = conf_vol >= prev_vol * float(rules.get("vol_ratio", 1.2))
-                            else:
-                                vol_ok = conf_vol > prev_vol
-                    if vol_ok:
-                        score = 70 + (15 if conf_vol > prev_vol and prev_vol > 0 else 0)
-                        seg = pre.tail(30)
-                        sh, sl = detect_swing_points(seg, left=2, right=2)
-                        tpts = []
-                        if len(sh) >= 2:
-                            tpts = [[str(seg.index[sh[-2][0]]), float(sh[-2][1])], [str(seg.index[sh[-1][0]]), float(sh[-1][1])]]
-                        return _pack("Bearish", level, "Support", score, tpts)
-
-    return None
-
-
-def backtest_nifty_day(day, interval="5m", scanner_id=1, symbol="^NSEI"):
-    """
-    Scan one full session day for Nifty (or any symbol).
-    Returns (hits, error_message).
-    Each hit includes setup_time_ist when the confirmation candle formed.
-    """
-    rules = None
-    strict = scanner_id == 3
-    if scanner_id == 3:
-        rules = dict(DEFAULT_STRICT_RULES)
-        rules.update(load_json(STRICT_FILE, {}))
-    elif scanner_id == 1:
-        sc = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
-        nm = list(sc.keys())[0] if sc else "My Price Action Scanner"
-        rules = sc.get(nm, DEFAULT_SCANNERS["My Price Action Scanner"]).get("rules", {})
-    else:
-        return [], "Backtest supports Scanner 1 (Price Action) and Scanner 3 (Strict) only for now."
-
-    df = _fetch_history_for_day(symbol, day, interval)
-    if df is None or len(df) < 40:
-        return [], "Not enough data. For 1m use a date within last ~7 days; 5m/15m allow longer history."
-
-    # Filter indices belonging to selected calendar day in IST
-    target = pd.Timestamp(day).date()
-    day_indices = []
-    for i, ts in enumerate(df.index):
-        d = _ist_date(ts)
-        if d == target:
-            day_indices.append(i)
-    if not day_indices:
-        return [], f"No candles found for {day} on {symbol} ({interval}). Market holiday or data gap."
-
-    hits = []
-    seen = set()
-    for conf_i in day_indices:
-        res = check_setup_at(df, conf_i, rules=rules, strict=strict)
-        if not res:
-            continue
-        key = (res.get("setup_time_ist"), res.get("direction"), res.get("level_price"))
-        if key in seen:
-            continue
-        seen.add(key)
-        res["symbol"] = symbol
-        res["interval"] = interval
-        res["backtest_day"] = str(target)
-        hits.append(res)
-    hits = sorted(hits, key=lambda x: x.get("setup_time_ist") or "")
-    return hits, None
-
-
-SCANNER_LABELS = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders", 3: "Scanner 3 · Strict PA"}
+SCANNER_LABELS = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders", 3: "Scanner 3 · Strict PA",
+                  4: "Scanner 4 · A+ Retest"}
 
 # defaults: timeframe 15m, auto-refresh interval 15m, auto refresh OFF until the user turns it on
 DEFAULT_MARKET_CFG = {
     "timeframe": "15m",
+    "timeframes": [],        # extra: scan SEVERAL timeframes each time, e.g. ["5m", "15m", "1h"] (empty = just "timeframe")
     "min_score": 60,
     "full_only": False,
     "auto_on": False,
     "interval": "15m",
     "scanner": 1,
+}
+
+# ====== PERMANENT AUTO-SCAN SETTINGS ======================================================
+# These are used every time the app starts fresh (after Streamlit Cloud sleeps / reboots / wipes files),
+# so you never have to set them again. Change the values here ONCE if you want something different.
+#   scanner: 1 Price Action | 2 Head&Shoulders | 3 Strict | 4 A+ Retest
+PERMANENT_AUTO = {
+    "Indian Stocks": {"auto_on": True,  "scanner": 4, "timeframe": "15m", "timeframes": ["5m", "15m", "1h"],
+                      "interval": "5m",  "min_score": 75},
+    "Crypto":        {"auto_on": True,  "scanner": 4, "timeframe": "15m", "timeframes": ["15m", "1h", "4h"],
+                      "interval": "15m", "min_score": 75},
+    "Forex":         {"auto_on": False, "scanner": 4, "timeframe": "15m", "timeframes": [],
+                      "interval": "15m", "min_score": 75},
 }
 
 _DISPATCH_LOCK = threading.Lock()
@@ -1842,6 +1678,7 @@ class AutoState:
         raw = load_json(AUTO_CFG_FILE, {})
         for m in AUTO_MARKETS:
             c = dict(DEFAULT_MARKET_CFG)
+            c.update(PERMANENT_AUTO.get(m, {}))
             part = raw.get(m, {}) if isinstance(raw, dict) else {}
             if isinstance(part, dict):
                 c.update({k: v for k, v in part.items() if k in DEFAULT_MARKET_CFG})
@@ -1932,6 +1769,8 @@ def core_scan(market, cfg, progress=None):
             strict_r = dict(DEFAULT_STRICT_RULES)
             strict_r.update(load_json(STRICT_FILE, {}))
             res = scan_symbol_strict(sym, interval=tf, rules=strict_r)
+        elif sid == 4:
+            res = pa_engine.scan_aplus(sym, interval=tf, min_score=max(75, int(cfg.get("min_score", 75))))
         else:
             res = scan_symbol(sym, interval=tf, rules=rules1)
         if res:
@@ -1944,14 +1783,67 @@ def core_scan(market, cfg, progress=None):
         time.sleep(0.08)
     results = sorted(results, key=lambda x: x["score"], reverse=True)
     sid = cfg.get("scanner", 1)
+    if sid == 4:
+        results = results[:10]            # only the best setups
     if sid == 2:
         used = hns
     elif sid == 3:
         used = dict(DEFAULT_STRICT_RULES)
         used.update(load_json(STRICT_FILE, {}))
+    elif sid == 4:
+        used = {}
     else:
         used = rules1
     return results, used
+
+
+def scan_one(sid, sym, tf, min_score, rules1, hns, strict_r):
+    """One symbol on one timeframe with the chosen scanner (safe to call from worker threads)."""
+    try:
+        if sid == 2:
+            return scan_hns(sym, interval=tf, rules=hns)
+        if sid == 3:
+            return scan_symbol_strict(sym, interval=tf, rules=strict_r)
+        if sid == 4:
+            return pa_engine.scan_aplus(sym, interval=tf, min_score=max(75, int(min_score)))
+        return scan_symbol(sym, interval=tf, rules=rules1)
+    except Exception:
+        return None
+
+
+def scan_all_markets(sid, markets, tfs, min_score, full_only=False, progress=None, workers=6):
+    """ONE CLICK: every symbol of the chosen markets x every chosen timeframe, scanned in parallel.
+    Returns a flat list of results; each has res['market'] and res['tf']."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    wls = merge_permanent_watchlists(load_json(WATCHLIST_FILE, DEFAULT_WATCHLISTS))
+    sc = load_json(SCANNERS_FILE, DEFAULT_SCANNERS)
+    nm = list(sc.keys())[0] if sc else "My Price Action Scanner"
+    rules1 = sc.get(nm, DEFAULT_SCANNERS["My Price Action Scanner"])["rules"]
+    hns = dict(DEFAULT_HNS_RULES); hns.update(load_json(HNS_FILE, {}))
+    strict_r = dict(DEFAULT_STRICT_RULES); strict_r.update(load_json(STRICT_FILE, {}))
+    owners = {}
+    for m in markets:
+        for sym in wls.get(m, []):
+            owners.setdefault(sym, m)              # a symbol that is in two lists is scanned once
+    tasks = [(sym, tf) for sym in owners for tf in tfs]
+    out, done = [], 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(scan_one, sid, sym, tf, min_score, rules1, hns, strict_r): (sym, tf) for sym, tf in tasks}
+        for f in as_completed(futs):
+            sym, tf = futs[f]
+            done += 1
+            try:
+                res = f.result()
+            except Exception:
+                res = None
+            if res and res.get("score", 0) >= min_score and not (full_only and not res.get("full_match")):
+                res = dict(res)
+                res["market"] = owners[sym]
+                res["tf"] = tf
+                out.append(res)
+            if progress:
+                progress(done, len(tasks), sym, tf)
+    return out
 
 
 def record_history(market, tf, scanner, results):
@@ -2018,11 +1910,17 @@ def dispatch_alerts(results, scanner_id, market, timeframe, rules):
 def run_market_job(state, market):
     """One full automatic scan of a section + automatic Telegram alerts."""
     cfg = state.get(market)
-    results, rules = core_scan(market, cfg)
-    state.set_results(market, results, cfg["timeframe"], cfg["scanner"], "auto")
-    if results:
-        record_history(market, cfg["timeframe"], cfg["scanner"], results)
-    dispatch_alerts(results, cfg["scanner"], market, cfg["timeframe"], rules)
+    tfs = [t for t in (cfg.get("timeframes") or []) if t in INTERVAL_MINUTES] or [cfg["timeframe"]]
+    all_results = []
+    for tf in tfs:
+        c2 = dict(cfg, timeframe=tf)
+        results, rules = core_scan(market, c2)
+        all_results += results
+        if results:
+            record_history(market, tf, cfg["scanner"], results)
+        dispatch_alerts(results, cfg["scanner"], market, tf, rules)      # one Telegram message per new setup
+    all_results = sorted(all_results, key=lambda x: x["score"], reverse=True)
+    state.set_results(market, all_results, "+".join(tfs), cfg["scanner"], "auto")
 
 
 def scheduler_loop(state):
@@ -2256,23 +2154,25 @@ html, body { font-size: 15.5px !important; }
 .st-key-mk_crypto button { border-color: rgba(224,64,251,0.6) !important; color: #ea80fc !important; }
 .st-key-mk_forex  button { border-color: rgba(0,176,255,0.6) !important; color: #80d8ff !important; }
 
-/* ---------- scanner picker (Scanner 1 / Scanner 2) ---------- */
+/* ---------- scanner picker (4 scanners, smaller text so all fit) ---------- */
 .st-key-scanner_wrap [data-testid="stHorizontalBlock"] {
-  flex-wrap: nowrap !important; gap: 0.55rem !important; width: 100% !important;
+  flex-wrap: nowrap !important; gap: 0.35rem !important; width: 100% !important;
 }
 .st-key-scanner_wrap [data-testid="stColumn"], .st-key-scanner_wrap [data-testid="column"] { min-width: 0 !important; }
 .st-key-scanner_wrap.st-key-scanner_wrap button {
-  min-height: 4rem !important; border-radius: 22px !important; padding: 0.2rem 0.3rem !important;
+  min-height: 3.7rem !important; border-radius: 18px !important; padding: 0.2rem 0.1rem !important;
   background: rgba(18,14,40,0.85) !important; border: 2px solid rgba(255,255,255,0.18) !important;
   transition: all 0.25s ease;
   opacity: 0.42; filter: blur(1.1px) saturate(0.55); transform: scale(0.97);
 }
 .st-key-scanner_wrap.st-key-scanner_wrap button p {
-  font-size: 1.05rem !important; font-weight: 800 !important; line-height: 1.3 !important;
-  margin: 0 !important; white-space: nowrap; text-align: center;
+  font-size: 0.74rem !important; font-weight: 800 !important; line-height: 1.25 !important;
+  margin: 0 !important; white-space: normal; text-align: center;
 }
 .st-key-sc_1.st-key-sc_1 button { border-color: rgba(0,229,255,0.65) !important; color: #80deea !important; }
 .st-key-sc_2.st-key-sc_2 button { border-color: rgba(255,179,0,0.70) !important; color: #ffd54f !important; }
+.st-key-sc_3.st-key-sc_3 button { border-color: rgba(0,230,118,0.65) !important; color: #69f0ae !important; }
+.st-key-sc_4.st-key-sc_4 button { border-color: rgba(234,128,252,0.70) !important; color: #ea80fc !important; }
 
 /* ---------- clickable title + extra side-by-side rows ---------- */
 .st-key-hdr_title.st-key-hdr_title button {
@@ -2496,7 +2396,8 @@ html, body { font-size: 15.5px !important; }
 """, unsafe_allow_html=True)
 
 # ====================== SHARED UI HELPERS ======================
-TF_OPTIONS = ["1m", "3m", "5m", "15m", "1h", "4h", "1d"]
+TF_OPTIONS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+ALL_TFS = TF_OPTIONS
 AR_OPTIONS = ["Off"] + TF_OPTIONS
 AR_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
@@ -2525,14 +2426,17 @@ def fmt_price(p):
 
 SCANNER_BTNS = [
     (1, "Scanner 1  \nPrice Action", "sc_1", "rgba(0,60,70,0.7)", "#00e5ff", "rgba(0,229,255,0.5)"),
-    (2, "Scanner 2  \nHead & Shoulders", "sc_2", "rgba(80,50,0,0.7)", "#ffb300", "rgba(255,179,0,0.5)"),
+    (2, "Scanner 2  \nH & S", "sc_2", "rgba(80,50,0,0.7)", "#ffb300", "rgba(255,179,0,0.5)"),
     (3, "Scanner 3  \nStrict PA", "sc_3", "rgba(0,50,30,0.75)", "#00e676", "rgba(0,230,118,0.55)"),
+    (4, "Scanner 4  \nA+ Retest", "sc_4", "rgba(60,0,80,0.7)", "#ea80fc", "rgba(234,128,252,0.5)"),
 ]
 
 
 def scanner_picker(persist=True):
     """Scanner buttons (same style as Stocks/Crypto/Forex). Returns the CSS that highlights the active one."""
     cur = st.session_state.get("scanner", 1)
+    if cur not in [b[0] for b in SCANNER_BTNS]:
+        cur = 1
     with kc("scanner_wrap"):
         cols = st.columns(len(SCANNER_BTNS))
         for col, (sid, label, key, _bg, _bd, _gl) in zip(cols, SCANNER_BTNS):
@@ -2652,6 +2556,10 @@ def _set_auto_on(m):
     AUTO.update(m, auto_on=bool(st.session_state.get(f"all_on_{m}")))
 
 
+def _set_tfs(m):
+    AUTO.update(m, timeframes=list(st.session_state.get(f"all_tfs_{m}") or []))
+
+
 def _all_auto(flag):
     for m in AUTO_MARKETS:
         AUTO.update(m, auto_on=flag)
@@ -2728,6 +2636,13 @@ def render_chart(res):
                 row=1, col=1,
             )
 
+        # Scanner 4: stop + target lines
+        if not res.get("pattern") and res.get("stop") is not None and res.get("target") is not None:
+            fig.add_hline(y=res["target"], line_dash="dot", line_color="#00e676", line_width=1.5,
+                          annotation_text="Target", annotation_position="bottom left", row=1, col=1)
+            fig.add_hline(y=res["stop"], line_dash="dot", line_color="#ff5252", line_width=1.5,
+                          annotation_text="Stop", annotation_position="top left", row=1, col=1)
+
         # Trendline from swing points (HL / LH)
         tpts = res.get("trend_points") or []
         if len(tpts) >= 2:
@@ -2793,6 +2708,38 @@ def render_chart(res):
             f"Break: {res.get('break_time_ist','—')}  |  "
             f"Setup: {res.get('setup_time_ist','—')}  |  IST (+05:30)"
         )
+
+
+def render_scan_all():
+    """Result of the SCAN ALL button: grouped by timeframe, best score first."""
+    data = st.session_state.get("scan_all")
+    if not data:
+        return
+    rows = data["rows"]
+    with kc("panel_scanall_res"):
+        st.markdown(f'<div class="ptitle">All timeframes • {data["time"]} • {SCANNER_LABELS.get(data["sid"], "")[:9]} '
+                    f'• {len(rows)} setups</div>', unsafe_allow_html=True)
+        if not rows:
+            st.caption("No setups right now. Try a lower Min score, or scan again after the next candle closes.")
+            return
+        table = pd.DataFrame([{
+            "TF": r["tf"], "Market": MARKET_LABEL_SHORT.get(r["market"], r["market"]),
+            "Symbol": r["symbol"].replace(".NS", "").replace("-USD", "").replace("=X", ""),
+            "Dir": r.get("direction"), "Score": r["score"], "Price": r.get("price"),
+            "Stop": r.get("stop"), "Target": r.get("target"), "Setup (IST)": r.get("setup_time_ist"),
+        } for r in sorted(rows, key=lambda x: (ALL_TFS.index(x["tf"]) if x["tf"] in ALL_TFS else 99, -x["score"]))])
+        st.dataframe(table, hide_index=True, use_container_width=True)
+        st.download_button("⬇️ Download CSV", table.to_csv(index=False), "scan_all.csv", "text/csv", key="sa_csv")
+        for tf in ALL_TFS:
+            items = sorted([r for r in rows if r["tf"] == tf], key=lambda x: -x["score"])
+            if not items:
+                continue
+            st.markdown(f'<div class="lbl-ms">⏱ {tf} • {len(items)} setup(s)</div>', unsafe_allow_html=True)
+            for k, r in enumerate(items):
+                st.caption(f"{MARKET_LABEL_SHORT.get(r['market'], r['market'])} • {tf}")
+                st.markdown(result_card_html(r, detailed=False), unsafe_allow_html=True)
+                if st.checkbox("Show chart", key=f"sa_ch_{tf}_{k}_{r['symbol']}"):
+                    render_chart(r)
 
 
 # ---- Scanner 2 rule editor definition: (key, kind, label, min, max, step, help)
@@ -2875,7 +2822,8 @@ history = load_json(HISTORY_FILE, [])
 hns_rules = dict(DEFAULT_HNS_RULES)
 hns_rules.update(load_json(HNS_FILE, {}))
 scanner_id = st.session_state.get("scanner", 1)
-SCANNER_NAMES = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders", 3: "Scanner 3 · Strict PA"}
+SCANNER_NAMES = {1: "Scanner 1 · Price Action", 2: "Scanner 2 · Head & Shoulders", 3: "Scanner 3 · Strict PA",
+                 4: "Scanner 4 · A+ Retest"}
 
 if "market" not in st.session_state:
     st.session_state["market"] = "Indian Stocks"
@@ -2910,7 +2858,7 @@ MARKET_COLOR = {
 }
 PLACEHOLDERS = {
     "Indian Stocks": "RELIANCE, TCS, INFY, SBIN",
-    "Crypto": "BTC, ETH, SOL, XRP",
+    "Crypto": "BTC, ETH, SOL, XAUUSD, XAGUSD, USOIL, US30, US500, US100",
     "Forex": "XAUUSD, EURUSD, GBPUSD",
 }
 
@@ -2967,6 +2915,8 @@ if page == "dashboard":
 
         if scanner_id == 2 and timeframe in ("1m", "3m", "5m"):
             st.caption("⚠ Head & Shoulders is mostly noise on small timeframes — 15m or higher works best.")
+        if scanner_id == 4:
+            st.caption("★ A+ Retest shows only the best setups (max 10). Min score below 75 is treated as 75.")
 
         # Min score
         score_default = int(cfg["min_score"])
@@ -3030,6 +2980,33 @@ if page == "dashboard":
         if st.button("🔄 Refresh Now", use_container_width=True, key="refresh_now"):
             st.session_state["force_scan"] = True
             st.rerun()
+
+    # ---------- ONE-CLICK: every market x every timeframe ----------
+    with kc("panel_scanall"):
+        st.markdown('<div class="ptitle">⚡ Scan everything (all timeframes)</div>', unsafe_allow_html=True)
+        sa_mk = st.multiselect("Markets", MARKET_ORDER, default=MARKET_ORDER, key="sa_mk",
+                               format_func=lambda m: MARKET_LABEL_SHORT.get(m, m))
+        sa_tf = st.multiselect("Timeframes", ALL_TFS, default=["1m", "3m", "5m", "15m", "30m", "1h"], key="sa_tf")
+        sa_sid = st.selectbox("Scanner", [4, 1, 3, 2], format_func=lambda i: SCANNER_LABELS[i], key="sa_sid")
+        sa_ms = st.slider("Min score", 60, 100, 75, 5, key="sa_ms")
+        st.caption("Scans every symbol of the chosen markets on every chosen timeframe in one go. "
+                   "Full run can take several minutes - keep this screen open until it finishes.")
+        sa_prog = st.empty()
+        sa_stat = st.empty()
+        if st.button("⚡ SCAN ALL", type="primary", use_container_width=True, key="scan_all_btn"):
+            if not sa_mk or not sa_tf:
+                st.warning("Pick at least one market and one timeframe.")
+            else:
+                t0 = time.time()
+
+                def _sa_prog(done, total, sym, tf):
+                    sa_prog.markdown(progress_html(done / max(total, 1)), unsafe_allow_html=True)
+                    sa_stat.caption(f"{done}/{total} done • last: {sym} ({tf})")
+
+                rows_all = scan_all_markets(sa_sid, sa_mk, sa_tf, int(sa_ms), progress=_sa_prog)
+                st.session_state["scan_all"] = {"rows": rows_all, "sid": sa_sid, "time": datetime.now(IST).strftime("%H:%M")}
+                sa_stat.caption(f"Finished in {int(time.time() - t0)}s • {len(rows_all)} setups found")
+    render_scan_all()
 
     # ---------- run scan (same scan loop the auto engine uses) ----------
     force = st.session_state.get("force_scan", False)
@@ -3221,6 +3198,28 @@ elif page == "rules" and scanner_id == 3:
             st.success("Reset to strict defaults")
             st.rerun()
 
+elif page == "rules" and scanner_id == 4:
+    with kc("panel_rules_head"):
+        page_title("Scanner 4 · A+ Retest", "Breakout → low-volume pullback → retest → confirmation")
+    dyn_css += scanner_picker(persist=False)
+    with kc("panel_rules_body"):
+        st.markdown("""
+**How a signal is built**
+1. Zone (support/resistance) tested **2+ times**
+2. Strong breakout candle (body ≥ 50%, closes near its high/low) on **volume ≥ 1.3× average**
+3. Pullback on **lower volume** that retests the broken zone and holds
+4. Confirmation candle closes back beyond the zone
+5. Stop beyond the retest low, target = **2R** (Backtest page can test 1.5R / 2R / 3R)
+
+**Score (0-100)**: zone touches, breakout strength, breakout volume, dry pullback, retest quality,
+trend (EMA20/50), volume-profile match (POC/VAH/VAL), room to next level.
+**A+ = 85+**, **A = 75-84**.
+
+**Other safeguards**: the still-forming candle is ignored (no repainting), India intraday ignores the
+first/last 15 minutes, Forex has no real volume so volume rules are neutral there.
+""")
+        st.caption("Use the Backtest page to measure win rate and expectancy before trusting this scanner.")
+
 elif page == "rules":
     with kc("panel_rules_head"):
         page_title("Scanner Rules", "View and change the rules the scanner uses")
@@ -3379,6 +3378,13 @@ elif page == "alerts":
                    "Alerts go out automatically after every scan (SCAN NOW or Auto refresh) with the chart and full "
                    "details. The same setup is never sent twice.")
 
+    _sec_ok = bool(_secrets_get("TELEGRAM_TOKEN") and _secrets_get("TELEGRAM_CHAT_ID"))
+    if _sec_ok:
+        st.success("✅ Telegram token + chat ID are stored permanently in Secrets - no need to enter them again.")
+    else:
+        st.warning("Telegram details are NOT in Secrets yet, so they can reset. Add TELEGRAM_TOKEN, TELEGRAM_CHAT_ID "
+                   "and TELEGRAM_ENABLED = true in Streamlit → Settings → Secrets.")
+
     # ---------- Durable backup (fixes Streamlit Cloud reset) ----------
     with kc("panel_backup"):
         st.markdown('<div class="ptitle">💾 Data backup (prevents reset)</div>', unsafe_allow_html=True)
@@ -3451,6 +3457,8 @@ PERSIST_GIST_ID = "your_gist_id_here"
                 elif _sid == 3:
                     _rules_tg = dict(DEFAULT_STRICT_RULES)
                     _rules_tg.update(load_json(STRICT_FILE, {}))
+                elif _sid == 4:
+                    _rules_tg = {}
                 else:
                     _rules_tg = active_rules
                 ok, mode, note = send_full_alert(
@@ -3476,7 +3484,10 @@ PERSIST_GIST_ID = "your_gist_id_here"
             with r2:
                 st.toggle(f"Auto {m}", value=bool(c["auto_on"]), key=f"all_on_{m}",
                           label_visibility="collapsed", on_change=_set_auto_on, args=(m,))
-            bits = [f"{c['timeframe']} candles", f"every {c['interval']}", SCANNER_LABELS[c["scanner"]][:9]]
+            st.multiselect("Timeframes to scan", TF_OPTIONS,
+                           default=[t for t in (c.get("timeframes") or [c["timeframe"]]) if t in TF_OPTIONS],
+                           key=f"all_tfs_{m}", on_change=_set_tfs, args=(m,), label_visibility="collapsed")
+            bits = [("+".join(c.get("timeframes") or []) or c["timeframe"]) + " candles", f"every {c['interval']}", SCANNER_LABELS.get(c["scanner"], "")[:9]]
             if c["auto_on"] and left is not None:
                 bits.append("scanning now" if AUTO.busy.get(m) else f"next in {max(left, 0) // 60}m {max(left, 0) % 60:02d}s")
             if e:
@@ -3493,150 +3504,21 @@ PERSIST_GIST_ID = "your_gist_id_here"
 
 
 # ====================================================================
-#                                HISTORY
+#                      BACKTEST  (A+ Retest strategy)
 # ====================================================================
 elif page == "backtest":
     with kc("panel_bt_head"):
-        page_title("Backtest", "Pick market, symbol & date — see when setups formed")
-
-    # Same market tabs as homepage
+        page_title("Backtest", "Win rate · expectancy · drawdown of the A+ Retest setup")
     dyn_css += market_picker()
     market = st.session_state.get("market", "Indian Stocks")
     if market not in MARKET_ORDER:
         market = "Indian Stocks"
-    dyn_css += scanner_picker()
-    scanner_id = st.session_state.get("scanner", 1)
-    current_list = list(watchlists.get(market, []) or [])
+    pa_engine.render_backtest_ui(st, watchlists.get(market, []), market, normalize=get_symbol_suffix)
 
-    with kc("panel_bt_controls"):
-        # Symbol: watchlist dropdown + type your own
-        st.markdown('<div class="ptitle">Symbol</div>', unsafe_allow_html=True)
-        sym_options = current_list if current_list else ["^NSEI"]
-        labels = []
-        for s in sym_options:
-            labels.append(s.replace(".NS", "").replace("-USD", "").replace("=X", ""))
-        pick = st.selectbox(
-            "From watchlist",
-            options=list(range(len(sym_options))),
-            format_func=lambda i: f"{labels[i]}  ({sym_options[i]})",
-            key="bt_sym_pick",
-            label_visibility="collapsed",
-        )
-        bt_sym = sym_options[pick]
-        custom = st.text_input(
-            "Or type symbol",
-            value="",
-            placeholder="e.g. RELIANCE or ^NSEI or XAUUSD",
-            key="bt_sym_type",
-        )
-        if custom and custom.strip():
-            bt_sym = get_symbol_suffix(custom.strip(), market)
 
-        # Date with calendar
-        st.markdown('<div class="ptitle">Date</div>', unsafe_allow_html=True)
-        bt_day = st.date_input(
-            "Trading day",
-            value=datetime.now().date(),
-            key="bt_day",
-            label_visibility="collapsed",
-        )
-
-        # Timeframe same as homepage
-        with kc("tf_row"):
-            c1, c2 = st.columns([1.2, 1])
-            with c1:
-                st.markdown('<div class="lbl-tf">⏱ Timeframe</div>', unsafe_allow_html=True)
-            with c2:
-                bt_tf = st.selectbox(
-                    "Timeframe",
-                    TF_OPTIONS,
-                    index=TF_OPTIONS.index("5m") if "5m" in TF_OPTIONS else 0,
-                    key="bt_tf",
-                    label_visibility="collapsed",
-                )
-
-        if scanner_id == 2:
-            st.caption("⚠ Head & Shoulders backtest not available — use Scanner 1 or Strict.")
-        st.caption("1m data ≈ last 7 days only (Yahoo). Use 5m/15m for older dates.")
-
-        # Progress bar (same style as homepage)
-        progress_slot = st.empty()
-        status_slot = st.empty()
-        progress_slot.markdown(progress_html(0), unsafe_allow_html=True)
-        st.markdown('<div style="height:0.6rem"></div>', unsafe_allow_html=True)
-
-        run_bt = st.button("SCAN NOW", type="primary", use_container_width=True, key="bt_scan_now")
-
-    if run_bt:
-        if scanner_id == 2:
-            st.warning("Switch to Scanner 1 or Scanner 3 for backtest.")
-            st.session_state["bt_hits"] = []
-            st.session_state["bt_err"] = "Scanner 2 not supported in backtest"
-        else:
-            # Support multi: if user left type empty, can scan one symbol (selected)
-            symbols_to_run = [bt_sym]
-            all_hits = []
-            err_msgs = []
-            n = len(symbols_to_run)
-            for i, sym in enumerate(symbols_to_run):
-                status_slot.caption(f"Scanning {sym} ({i+1}/{n})")
-                progress_slot.markdown(progress_html(i / max(n, 1)), unsafe_allow_html=True)
-                hits, err = backtest_nifty_day(str(bt_day), interval=bt_tf, scanner_id=scanner_id, symbol=sym)
-                if err:
-                    err_msgs.append(f"{sym}: {err}")
-                if hits:
-                    all_hits.extend(hits)
-                progress_slot.markdown(progress_html((i + 1) / max(n, 1)), unsafe_allow_html=True)
-            status_slot.caption("Scan complete")
-            all_hits = sorted(all_hits, key=lambda x: (x.get("setup_time_ist") or "", x.get("symbol") or ""))
-            st.session_state["bt_hits"] = all_hits
-            st.session_state["bt_err"] = " | ".join(err_msgs) if err_msgs and not all_hits else None
-            st.session_state["bt_meta"] = {
-                "day": str(bt_day), "tf": bt_tf, "sym": bt_sym,
-                "scanner": scanner_id, "market": market,
-            }
-
-    err = st.session_state.get("bt_err")
-    hits = st.session_state.get("bt_hits") or []
-    meta = st.session_state.get("bt_meta") or {}
-    if err:
-        st.error(err)
-    if meta and not err:
-        st.caption(
-            f"{meta.get('sym')} • {meta.get('day')} • {meta.get('tf')} • "
-            f"{SCANNER_LABELS.get(meta.get('scanner'), '')} • **{len(hits)}** setup(s)"
-        )
-
-    # Results with charts (images)
-    if hits:
-        with kc("panel_bt_results"):
-            st.markdown('<div class="ptitle">Results</div>', unsafe_allow_html=True)
-            rows = []
-            for idx, res in enumerate(hits):
-                st.markdown(result_card_html(res, detailed=True), unsafe_allow_html=True)
-                with st.expander(
-                    f"📈 Chart • {res.get('symbol','')} • {res.get('setup_time_ist','')} • {res.get('direction','')}",
-                    expanded=(idx == 0),
-                ):
-                    try:
-                        render_chart(res)
-                    except Exception as e:
-                        st.caption(f"Chart unavailable: {e}")
-                rows.append({
-                    "Setup time (IST)": res.get("setup_time_ist"),
-                    "Break time (IST)": res.get("break_time_ist"),
-                    "Symbol": res.get("symbol"),
-                    "Direction": res.get("direction"),
-                    "Near": res.get("near_level"),
-                    "Level": res.get("level_price"),
-                    "Price": res.get("price"),
-                    "Score": res.get("score"),
-                })
-            st.markdown('<div class="ptitle">Summary table</div>', unsafe_allow_html=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    elif meta and not err:
-        st.info("No setups matched on this day for the selected symbol / scanner / timeframe.")
-
+# ====================================================================
+#                                HISTORY
+# ====================================================================
 elif page == "history":
     with kc("panel_hist_head"):
         page_title("Scan History", "Your last 30 scans, newest first")
